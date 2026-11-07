@@ -34,12 +34,13 @@ with a chat message, never queued.
 | File | Role | WoW calls |
 |---|---|---|
 | `StreonorDock.toc` | Interface 16001, load order, SavedVariables | - |
-| `Bindings.xml` | Next/previous/home key bindings under the StreonorDock header | - |
+| `Bindings.xml` | Next/previous/home key bindings (header StreonorDock) and 15 diagnostic `CLICK StreonorDockSlotN:LeftButton` entries (header "StreonorDock slots") | - |
+| `Slots.xml` | Declares the 15 secure buttons `StreonorDockSlot1..15` (no parent, size or anchor), so they exist even after a `/reload` in combat | load time |
 | `Core.lua` | Pure layout model, pages, export builder, cursor normalization, slot identity, secure attribute plans, sanitizer | none |
 | `CooldownData.lua` | Shipped cooldown reference table (research seed, all `verified=false`) | none |
 | `Cooldown.lua` | Pure item timer model: pool/group/item keys, press timers, own-use learning, sharing evidence | none |
 | `Panel.lua` | Editor frame (BackdropTemplate), 15 key + 3 readout widgets, pager buttons, cooldown widgets | UI only |
-| `Secure.lua` | 15 `SecureActionButtonTemplate` buttons `StreonorDockSlot1..15`, click direction, attributes, override bindings, conflict report | protected, out of combat only |
+| `Secure.lua` | Configures the XML buttons: click direction, `*type1`/`*spell1`/`*item1` attributes (diffed, stale ones cleared), override bindings, conflict report | protected, out of combat only |
 | `Export.lua` | Every game read (guarded by `issecretvalue`), cooldown reconciliation, snapshot write | reads |
 | `Init.lua` | One event frame + handler table, SavedVariables init, edit/page entry points, `/sdock` | events |
 
@@ -69,7 +70,15 @@ it "saved snapshot" and show its age**: disk writes happen only at `/reload`/log
   with the same label shares one timer), else by group key, else by item ID. Any slot on any page
   showing a member shows the same timer; paging never resets it.
 - A key slot press (our secure button's `PostClick`, works in combat) starts a timer if: estimates
-  enabled, bag count is a plain number > 0, nothing running for that key, not dormant.
+  enabled, bag count is a plain number > 0, nothing running for that key, not dormant, and the game
+  reading is not plain out of combat (then the game reports the real cooldown itself). `PostClick`
+  means **a press, not proof of a use**: the use can fail (out of range, already locked); the timer
+  is an estimate until readable game data reconciles it. A plain ready/GCD-only reading after a
+  1.5 s grace clears an estimate or USED marker; a "ready" reading from an item with bag count 0 is
+  ignored (the last potion's lock is still real).
+- Auto estimates (`/sdock estimates auto`) turn off only after a readable ACTIVE item cooldown
+  (> 1.5 s) is seen in combat on this client build with no sealed reading; sealed evidence wins;
+  the evidence resets when the client build changes.
 - Duration precedence: live game data > item override > group learned/verified value > shipped
   table value (`0` = no use cooldown, dormant; `nil` = unknown) > base-cooldown API (only if
   present) > unknown, shown as `USED <elapsed>` instead of a made-up countdown.
@@ -96,8 +105,14 @@ Get-ChildItem -Recurse -Filter *.lua | ForEach-Object {
 }
 ```
 
-The fake host makes protected operations throw in combat, so tests prove the addon never attempts
-them during lockdown in the modelled paths. They do not prove the real client behaves like the fake.
+The fake host models protected operations (secure attributes, click registration, scripts,
+show/hide/points on secure frames, secure frame creation, override bindings) as BLOCKED in combat:
+ignored and counted, not thrown, so the addon's own `pcall`/`ns.Safe` cannot hide an attempt.
+`tests\run.lua` fails any test whose fake host recorded a blocked attempt or printed an addon
+"internal error". Mutation check (2026-11-07): deleting the single combat guard in
+`Secure.lua` `applyAll` fails 2 tests; deleting the secret check in `Export.ReadItemCooldown`
+fails 2 tests. This covers only the paths the tests drive; it does not prove the real client
+behaves like the fake.
 
 ## In-game checklist (staged by what the character has)
 
@@ -115,28 +130,46 @@ is new. Keep `/console scriptErrors 1` on. Record results in NOTES.md.
    Drag a macro or money: rejected, cursor still held. Drag the spell onto a readout: "readouts accept
    bag items only". Drag food onto readout 1: icon + count.
 5. Press `ALT-CTRL-SHIFT-1` and `-2` with the panel shown, then hidden: each press casts/uses once.
-   Switch Interface > Combat > "Cast action keybinds on key down" (ActionButtonUseKeyDown) and repeat:
-   still exactly one activation per press.
-6. `/sdock chords`: every effective mapping says `ours`; note any CONFLICT (BindPad, other addons).
-7. Paging: next creates empty page 2, home returns with key 1/2 intact, prev at page 1 stays,
+   Repeat with the whole UI hidden (Alt+Z). Switch Interface > Combat > "Cast action keybinds on key
+   down" (ActionButtonUseKeyDown) and repeat: still exactly one activation per press.
+   Warning: `/click StreonorDockSlot1` sends an UP click, so it looks broken while key-down is on;
+   test with the chord, not `/click`.
+6. Keys 11 and 15 use `-` and `\`: `/dump GetBindingAction("ALT-CTRL-SHIFT--", true)` and
+   `/dump GetBindingAction("ALT-CTRL-SHIFT-\\", true)` must print `CLICK StreonorDockSlot11:LeftButton`
+   / `...Slot15...`, and both chords must fire.
+7. A/B binding test: in Key Bindings > "StreonorDock slots (diagnostic)" bind a spare key (e.g. F6) to
+   Slot 1. If F6 fires slot 1 but `ALT-CTRL-SHIFT-1` does not, the override path is to blame (report
+   it; there is deliberately no SetBinding fallback). Unbind F6 afterwards.
+8. Self-cast check: target a friendly player/NPC, put a heal on a key and press its chord (the chord
+   holds ALT): note who is healed. If ALT self-casts, record it (the chord modifiers are part of the
+   design; the attributes are `*`-prefixed so modifiers do not change which action fires).
+9. `/sdock chords`: every effective mapping says `ours`; note any CONFLICT (BindPad, other addons).
+10. Paging: next creates empty page 2, home returns with key 1/2 intact, prev at page 1 stays,
    next ten times stops at page 10 with "maximum of 10 pages reached". Bind the three pager keys in
    Key Bindings > StreonorDock and repeat with the keys.
-8. Combat (hit a training dummy/mob): drag/right-click/pager -> "editing/paging unavailable in combat",
+11. Combat (hit a training dummy/mob): drag/right-click/pager -> "editing/paging unavailable in combat",
    state unchanged; keys still fire; panel can still be toggled. After combat no errors.
-9. Right-click a filled key: slot clears and nothing is cast/used; the chord then does nothing.
-10. `/reload`, then read `WTF\...\SavedVariables\StreonorDock.lua` (read only): `export.schema=1`,
+12. Right-click a filled key: slot clears and nothing is cast/used; the chord then does nothing.
+13. `/reload`, then read `WTF\...\SavedVariables\StreonorDock.lua` (read only): `export.schema=1`,
     `profileId` random, no names, `slots[1]` spell with chord, page `{index,count}`, `savedAt`.
 
 ### Stage 1: first potions or other cooldown items
 1. Put a potion on a key and the same potion on readout 1. Out of combat press the key: readout
    shows the cooldown with no `est`; `/sdock cooldowns` shows the group verified or a mismatch.
-2. In combat press again after it is ready: `/sdock probe` "readable in combat" says true or false.
-   If true, estimates auto-turn off (expected); if false, the timer shows `est`, then corrects after
-   combat (PLAYER_REGEN_ENABLED).
-3. With two different potions held (e.g. health and mana), use one: `/sdock cooldowns` reports
-   "pool potion: shared lock seen" (or not-shared evidence).
-4. Start a cooldown, page away and back: same remaining time on every slot showing that item/pool.
-5. Item with unknown length (not in the table): shows `USED <elapsed>` until the game reading arrives.
+2. In combat, before and after drinking:
+   `/run local s,d=C_Item.GetItemCooldown(118) print(issecretvalue(s),issecretvalue(d))`
+   (prints only true/false). Then `/sdock probe` "readable in combat": true or false. If true,
+   estimates auto-turn off (expected); if false, the timer shows `est`, then corrects after combat.
+3. In combat, check the cooldown starts immediately when you drink (not paused until combat ends):
+   the readout swipe starts at once and `/dump C_Item.GetItemCooldown(118)` shows a non-zero start.
+4. Sharing evidence is only recorded for a press **through a dock key** while another potion of the
+   same pool is **in your bags**: hold health and mana potions, press the health potion's key, then
+   `/sdock cooldowns` should report "pool potion: shared lock seen" (or not-shared evidence).
+5. Use your last potion of a kind: the pool timer must keep running (the empty item cannot clear it)
+   and `/dump C_Item.GetItemCooldown(<other potion id>)` should still show the lock.
+6. Start a cooldown, page away and back: same remaining time on every slot showing that item/pool.
+7. Item with unknown length (not in the table) pressed in combat with sealed data: shows
+   `USED <elapsed>` until a readable reading arrives (out of combat it shows the game cooldown or nothing).
 
 ### Stage 2: sappers, bombs, Jujus, Healthstones, runes (research verification)
 1. Use a health potion; `/dump C_Item.GetItemCooldown(13444)` and the protection/Healthstone IDs.
@@ -147,7 +180,8 @@ is new. Keep `/console scriptErrors 1` on. Record results in NOTES.md.
    Record durations and cross-lockouts separately (cross-lockouts are not modelled in v1).
 
 ## Retest if the TOC Interface moves off 16001
-- `StreonorDock.toc` `## Interface` line; `Bindings.xml` discovery and header.
+- `StreonorDock.toc` `## Interface` line; `Bindings.xml` discovery, both headers and the CLICK
+  entries; `Slots.xml` secure button creation.
 - `Init.lua`: every event name in the handler table (probe lists unregistered ones), CVAR_UPDATE
   payload, `GetBuildInfo`, `WOW_PROJECT_ID`.
 - `Secure.lua`: `SecureActionButtonTemplate`, `useOnKeyDown` / `RegisterForClicks`,

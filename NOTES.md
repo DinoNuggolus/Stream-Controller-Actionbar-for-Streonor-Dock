@@ -99,3 +99,34 @@
 - Run the staged in-game checklist in README.md (Stage 0 first), paste `/sdock probe` output here.
 - If override bindings fail: stop (spec decision 5), no SetBinding fallback.
 - Fold `/sdock cooldowns` output into CooldownData.lua after Stage 1/2 tests.
+
+## Fix round (2026-11-07): code review + BindPad technique study
+All 14 items applied (see commit 2c63dc5 and README). Notes and deviations:
+- Item 2 / mutation: Secure.lua previously had two redundant combat guards (Request and applyAll),
+  so deleting either alone could never fail a test. Now there is ONE guard, at the top of
+  applyAll (Secure.Request = applyAll). Deleting it fails 2 tests; deleting the secret check in
+  Export.ReadItemCooldown fails 2 tests. The fake host counts blocked attempts (no throw) and
+  run.lua fails on any blocked attempt or addon "internal error".
+- Item 1: probe evidence is `StreonorDockDB.probe = {build, combatReadable, sealedSeen}`; a sealed
+  reading in combat sets false and blocks a later true on the same build.
+- Item 3: estimates are skipped at press time when GetItemCooldown is plain out of combat; the
+  panel timer now calls ObserveItems before redrawing.
+- Item 4: `observe(itemID, start, duration, now, count)`; count 0 + ready/GCD reading is ignored.
+- Item 9: re-apply after combat/SPELLS_CHANGED is now diff-based: attributes only where the plan
+  changed, click direction only when the CVar value changed, overrides only when the last block
+  was not 15/15 or GetBindingAction(key, true) no longer shows ours for every chord.
+- Item 11: buttons come from Slots.xml (parentless). Secure.lua keeps a parentless CreateFrame
+  fallback, used only out of combat, if an XML button is missing; probe reports the template.
+- Item 12: Bindings.xml CLICK entries have an empty body; the addon never sets/saves bindings
+  (a test greps all addon Lua for SetBinding(/SaveBindings( outside comments).
+- Item 13: confirmed: CVAR_UPDATE handles both CVar names and PLAYER_REGEN_ENABLED re-runs Request.
+- TOC BOM removed (tests now assert no BOM in TOC, Bindings.xml, Slots.xml and all Lua).
+- Result: 56 tests / 3447 assertions / 0 failures; luac -p clean.
+
+Assumption updates (replace items 1 and 4 above):
+1. XML-declared, parentless SecureActionButtonTemplate buttons are fired by
+   SetOverrideBindingClick on this client (BindPad proves the CLICK-binding path with SetBinding,
+   not the override path: README Stage 0 step 7 is the A/B test).
+4. `*type1`/`*spell1`/`*item1` match any modifier with the LeftButton binding click.
+16. Bindings.xml `<Binding name="CLICK StreonorDockSlotN:LeftButton"></Binding>` (empty body)
+    appears in the Key Bindings UI under its header.
