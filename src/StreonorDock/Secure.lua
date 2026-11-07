@@ -1,18 +1,21 @@
 local addonName, ns = ...
--- 15 persistent SecureActionButtonTemplate buttons (StreonorDockSlot1..15), independent of the
--- editor panel, fired by temporary override bindings (SetOverrideBindingClick) on the fixed
--- ALT-CTRL-SHIFT chords. Plain type/spell/item attributes only: no secure snippets, no
--- SetBinding/SaveBindings fallback, nothing written to Blizzard frames. Every attribute, click
--- registration and binding change happens OUT OF COMBAT; in combat the work is queued once and
--- runs on PLAYER_REGEN_ENABLED.
+-- 15 persistent SecureActionButtonTemplate buttons StreonorDockSlot1..15, declared in Slots.xml
+-- (no parent, size or anchor: they exist even after a /reload in combat and keep working while
+-- the editor is hidden). They are fired by temporary override bindings (SetOverrideBindingClick)
+-- on the fixed ALT-CTRL-SHIFT chords. "*"-prefixed type/spell/item attributes only: no secure
+-- snippets, no SetBinding/SaveBindings anywhere, nothing written to Blizzard frames. Every
+-- attribute, click registration and binding change happens OUT OF COMBAT; in combat the work is
+-- queued once and runs on PLAYER_REGEN_ENABLED. Unchanged settings are not rewritten.
 local Secure = {}
 ns.Secure = Secure
 local buttons = {}
 local owner
 Secure.buttons = buttons
 Secure.status = {ready=false, template=nil, bindings="not applied", applied=0, verified=nil,
-    keyDown=nil, conflicts=0, lastError=nil}
+    keyDown=nil, conflicts=0, lastError=nil, writes=0}
 local queued = false
+local applied = {}          -- applied[i][attributeKey] = value last written (diff source)
+local appliedKeyDown = nil
 local function issecret(v) return ns.Export.issecret(v) end
 local function plainString(v) if not issecret(v) and type(v)=="string" then return v end end
 
@@ -20,8 +23,9 @@ function Secure.ButtonName(index) return "StreonorDockSlot" .. index end
 function Secure.ClickAction(index) return "CLICK " .. Secure.ButtonName(index) .. ":LeftButton" end
 
 local function postClick(self)
-    -- Insecure PostClick on our own button: runs after the secure action, in combat too.
-    -- Records an item press for the press-activated timer; never acts on gameplay.
+    -- Insecure PostClick on our own button, after the secure handler, in combat too. It means
+    -- "the key was pressed", NOT that the item was used (the use can fail); the timers treat it
+    -- as a press and reconcile with readable game data. Never acts on gameplay.
     ns.Safe("press", function()
         if self.streonorKind=="item" and self.streonorID then
             if ns.Export.OnKeyPress(self.streonorID) then
@@ -32,23 +36,24 @@ local function postClick(self)
     end)
 end
 
--- Creates the binding owner and the 15 buttons. Out of combat only; returns ready.
-function Secure.Init()
+-- Collects the XML-declared buttons (fallback: create parentless ones) and the binding owner.
+-- Callers guarantee we are out of combat (applyAll checks first).
+local function init()
     if Secure.status.ready then return true end
-    if InCombatLockdown() then return false end
-    owner = owner or CreateFrame("Frame", "StreonorDockBindingOwner", UIParent)
+    owner = owner or CreateFrame("Frame", "StreonorDockBindingOwner")
     for i=1,15 do
-        if not buttons[i] then
-            local ok, button = pcall(CreateFrame, "Button", Secure.ButtonName(i), UIParent, "SecureActionButtonTemplate")
-            if not ok or not button then
-                Secure.status.template = "unavailable"
-                Secure.status.lastError = "SecureActionButtonTemplate could not be created"
-                return false
-            end
-            -- Like BindPad's hidden binding buttons: no size or anchor, never drawn, still clickable by binding.
-            button:SetScript("PostClick", postClick)
-            buttons[i] = button
+        local button = buttons[i] or _G[Secure.ButtonName(i)]
+        if type(button)~="table" then
+            local ok, made = pcall(CreateFrame, "Button", Secure.ButtonName(i), nil, "SecureActionButtonTemplate")
+            button = ok and made or nil
         end
+        if not button then
+            Secure.status.template = "unavailable"
+            Secure.status.lastError = "SecureActionButtonTemplate button " .. i .. " missing"
+            return false
+        end
+        if not buttons[i] then button:SetScript("PostClick", postClick) end
+        buttons[i] = button
     end
     Secure.status.template = "available"
     Secure.status.ready = true
@@ -62,9 +67,13 @@ function Secure.ApplyClickDirection()
         local ok, value = pcall(GetCVarBool, "ActionButtonUseKeyDown")
         if ok and not issecret(value) and value~=nil then keyDown = value and true or false end
     end
-    for i=1,15 do
-        buttons[i]:SetAttribute("useOnKeyDown", keyDown)
-        buttons[i]:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
+    if appliedKeyDown~=keyDown then
+        for i=1,15 do
+            buttons[i]:SetAttribute("useOnKeyDown", keyDown)
+            buttons[i]:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
+        end
+        appliedKeyDown = keyDown
+        Secure.status.writes = Secure.status.writes + 30
     end
     Secure.status.keyDown = keyDown
 end
@@ -73,40 +82,34 @@ local function spellName(spellID)
     local name = ns.Export.SpellMeta(spellID)
     return plainString(name)
 end
--- Writes the current page's attributes; clears type/spell/item that the new kind does not use.
+-- Writes the current page's attributes where they differ from what was last applied; every
+-- key of the plan is set or cleared, so no stale attribute survives a kind change.
 function Secure.ApplyAttributes()
     local page = ns.state.pages[ns.state.currentPage]
     for i=1,15 do
         local slot, button = page.slots[i], buttons[i]
         local name = slot.kind=="spell" and not slot.pinned and spellName(slot.id) or nil
         local plan = ns.Core.secureAttributes(slot, name)
-        -- Clear first so no combination of old and new attributes is ever visible together.
-        button:SetAttribute("type", nil)
-        for _, key in ipairs({"spell","item"}) do
-            if plan[key] then button:SetAttribute(key, plan[key]) else button:SetAttribute(key, nil) end
+        local last = applied[i] or {}
+        local changed = false
+        for _, key in ipairs(ns.Core.SECURE_KEYS) do
+            if (plan[key] or nil)~=last[key] then changed = true end
         end
-        if plan.type then button:SetAttribute("type", plan.type) end
-        button.streonorKind = plan.type or nil
-        button.streonorID = plan.type and slot.id or nil
+        if changed then
+            -- Clear the type first so no mix of old and new attributes is ever actionable.
+            button:SetAttribute("*type1", nil)
+            for _, key in ipairs(ns.Core.SECURE_KEYS) do
+                if key~="*type1" then button:SetAttribute(key, plan[key] or nil) end
+            end
+            if plan["*type1"] then button:SetAttribute("*type1", plan["*type1"]) end
+            local record = {}
+            for _, key in ipairs(ns.Core.SECURE_KEYS) do record[key] = plan[key] or nil end
+            applied[i] = record
+            Secure.status.writes = Secure.status.writes + 4
+        end
+        button.streonorKind = plan["*type1"] or nil
+        button.streonorID = plan["*type1"] and slot.id or nil
     end
-end
-
--- Temporary overrides owned by our frame. Cleared and re-set as a block (idempotent).
-function Secure.ApplyBindings()
-    if type(SetOverrideBindingClick)~="function" or type(ClearOverrideBindings)~="function" then
-        Secure.status.bindings = "unavailable"
-        return false
-    end
-    ClearOverrideBindings(owner)
-    local applied = 0
-    for i=1,15 do
-        local ok = pcall(SetOverrideBindingClick, owner, false, ns.Core.chord(i), Secure.ButtonName(i), "LeftButton")
-        if ok then applied = applied+1 end
-    end
-    Secure.status.applied = applied
-    Secure.status.bindings = applied==15 and "applied" or "partial"
-    Secure.status.verified = Secure.Verify()
-    return applied==15
 end
 
 -- action string or nil, ok. Second argument requests the effective (override-aware) mapping,
@@ -130,6 +133,29 @@ function Secure.Verify()
     end
     return count
 end
+-- Temporary overrides owned by our frame, set as a block. Skipped when the last block applied
+-- fully and (where checkable) every chord still maps to our click.
+function Secure.ApplyBindings()
+    if type(SetOverrideBindingClick)~="function" or type(ClearOverrideBindings)~="function" then
+        Secure.status.bindings = "unavailable"
+        return false
+    end
+    if Secure.status.applied==15 then
+        local verified = Secure.Verify()
+        if verified==nil or verified==15 then Secure.status.verified = verified; return true end
+    end
+    ClearOverrideBindings(owner)
+    local count = 0
+    for i=1,15 do
+        local ok = pcall(SetOverrideBindingClick, owner, false, ns.Core.chord(i), Secure.ButtonName(i), "LeftButton")
+        if ok then count = count+1 end
+    end
+    Secure.status.writes = Secure.status.writes + 16
+    Secure.status.applied = count
+    Secure.status.bindings = count==15 and "applied" or "partial"
+    Secure.status.verified = Secure.Verify()
+    return count==15
+end
 -- Per chord: ordinary binding (what our override shadows) and effective mapping.
 function Secure.Conflicts()
     local rows, conflicts = {}, 0
@@ -148,22 +174,23 @@ function Secure.Conflicts()
     return rows, conflicts
 end
 
+local function queue()
+    if not queued then
+        queued = true
+        ns.RunOutOfCombat(function() queued = false; ns.Safe("secure", Secure.Request) end)
+    end
+    return false
+end
+-- The single entry point for secure work. The combat guard comes FIRST: nothing protected
+-- (button setup, attributes, click registration, bindings) is attempted during lockdown.
 local function applyAll()
-    queued = false
-    if not ns.state or not Secure.Init() then return false end
+    if InCombatLockdown() then return queue() end
+    if not ns.state or not init() then return false end
     Secure.ApplyClickDirection()
     Secure.ApplyAttributes()
     return Secure.ApplyBindings()
 end
--- Public entry: run now if out of combat, else queue exactly once for PLAYER_REGEN_ENABLED.
-function Secure.Request()
-    if InCombatLockdown() then
-        if not queued then
-            queued = true
-            ns.RunOutOfCombat(function() ns.Safe("secure", applyAll) end)
-        end
-        return false
-    end
-    return applyAll()
-end
+-- Public entry: runs now out of combat, else queues once (the guard lives in applyAll only, so
+-- there is exactly one place that decides; tests delete it to prove they would catch that).
+Secure.Request = applyAll
 function Secure.IsQueued() return queued end

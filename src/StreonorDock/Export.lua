@@ -9,6 +9,8 @@ ns.Export = Export
 Export.stats = {reads=0, readable=0, sealed=0, unavailable=0, estimates=0}
 local requested = {spell={}, item={}}   -- metadata load requests in flight (dedupe)
 local failed = {spell={}, item={}}      -- loads that reported failure this session
+local attempts = {spell={}, item={}}    -- requests per ID this session (capped: no request loops)
+Export.MAX_REQUESTS = 3
 local dirtyScheduled = false
 
 function Export.issecret(value)
@@ -46,7 +48,9 @@ end
 
 local function request(kind, itemID)
     if requested[kind][itemID] or failed[kind][itemID] then return end
+    if (attempts[kind][itemID] or 0)>=Export.MAX_REQUESTS then return end
     local fn = kind=="spell" and lib("C_Spell").RequestLoadSpellData or lib("C_Item").RequestLoadItemDataByID
+    attempts[kind][itemID]=(attempts[kind][itemID] or 0)+1
     if call(fn, itemID) then requested[kind][itemID]=true end
 end
 
@@ -110,9 +114,10 @@ function Export.MetaFailed(kind, itemID) return failed[kind] and failed[kind][it
 
 -- Late SPELL_DATA_LOAD_RESULT / ITEM_DATA_LOAD_RESULT. Carries no metadata: callers re-read the
 -- slot that holds this identity NOW (Core.findSlots), so a reassigned slot is never overwritten.
+-- Results for IDs we did not request (other addons' loads) are ignored.
 function Export.OnDataLoaded(kind, itemID, success)
     itemID = positiveInteger(itemID)
-    if not itemID or not requested[kind] then return {} end
+    if not itemID or not requested[kind] or not requested[kind][itemID] then return {} end
     requested[kind][itemID]=nil
     if plain(success)==false then failed[kind][itemID]=true end
     return ns.Core.findSlots(ns.state, kind, itemID)
@@ -162,7 +167,8 @@ function Export.BaseCooldown(itemID)
 end
 
 -- Estimates (press-started timers) are a setting: "on", "off" or "auto" (default). Auto turns
--- them off once a readable GetItemCooldown has been seen during combat lockdown.
+-- them off only after a readable ACTIVE item cooldown (duration > 1.5 s) was seen in combat on
+-- this client build and no sealed reading was seen in combat on this build.
 function Export.EstimatesEnabled()
     local db = type(StreonorDockDB)=="table" and StreonorDockDB or {}
     local settings = type(db.settings)=="table" and db.settings or {}
@@ -171,12 +177,26 @@ function Export.EstimatesEnabled()
     local probe = type(db.probe)=="table" and db.probe or {}
     return probe.combatReadable~=true
 end
-local function noteCombatReading(kind)
+-- The combat-readability evidence belongs to one client build; a build change resets it.
+function Export.ResetProbeForBuild(build)
+    if type(StreonorDockDB)~="table" then return end
+    local probe = type(StreonorDockDB.probe)=="table" and StreonorDockDB.probe or {}
+    if probe.build~=build then probe = {build=build} end
+    if type(probe.combatReadable)~="boolean" then probe.combatReadable=nil end
+    StreonorDockDB.probe = probe
+end
+-- kind: "readable" (with its duration) or "sealed". Ready/GCD readings are not evidence: a plain
+-- 0,0 says nothing about whether an ACTIVE cooldown would be sealed. Sealed evidence wins.
+function Export.NoteCombatReading(kind, duration)
     if type(StreonorDockDB)~="table" or type(InCombatLockdown)~="function" or not InCombatLockdown() then return end
     if type(StreonorDockDB.probe)~="table" then StreonorDockDB.probe={} end
-    if kind=="readable" then StreonorDockDB.probe.combatReadable=true
-    elseif kind=="sealed" and StreonorDockDB.probe.combatReadable==nil then StreonorDockDB.probe.combatReadable=false end
+    local probe = StreonorDockDB.probe
+    if kind=="sealed" then probe.combatReadable=false; probe.sealedSeen=true
+    elseif kind=="readable" and type(duration)=="number" and duration>1.5 and not probe.sealedSeen then
+        probe.combatReadable=true
+    end
 end
+local noteCombatReading = Export.NoteCombatReading
 
 -- PostClick of OUR secure key button holding this item (runs in combat too). Always records the
 -- press time (own-use learning); starts the press timer only if estimates are enabled, the bag
@@ -185,8 +205,13 @@ function Export.OnKeyPress(itemID)
     itemID = positiveInteger(itemID)
     local now, tracker = Export.Now(), ns.cooldowns
     if not itemID or not now or not tracker then return false end
-    local started = tracker:press(itemID, now, Export.ItemCount(itemID), Export.BaseCooldown(itemID),
-        Export.EstimatesEnabled())
+    local estimate = Export.EstimatesEnabled()
+    -- Out of combat with a plain reading the game will report the real cooldown itself
+    -- (Amendment 2 item 7): record the press for learning, but start no estimate.
+    if estimate and type(InCombatLockdown)=="function" and not InCombatLockdown() then
+        if Export.ReadItemCooldown(itemID) then estimate=false end
+    end
+    local started = tracker:press(itemID, now, Export.ItemCount(itemID), Export.BaseCooldown(itemID), estimate)
     if started then Export.stats.estimates=Export.stats.estimates+1 end
     return started
 end
@@ -211,16 +236,18 @@ function Export.ObserveItems()
         seen[itemID]=true
         local start, duration = Export.ReadItemCooldown(itemID)
         if start then
-            noteCombatReading("readable")
-            tracker:observe(itemID, start, duration, now)
+            noteCombatReading("readable", duration)
+            -- The count lets the tracker ignore "ready" from an item no longer in the bags.
+            tracker:observe(itemID, start, duration, now, Export.ItemCount(itemID))
         elseif duration=="sealed" then
             noteCombatReading("sealed")
         end
     end
+    -- Starters of running timers first, so sharing evidence never depends on item-ID order.
+    for _, itemID in ipairs(tracker:activeItems(now)) do observe(itemID) end
     for _, itemID in ipairs(ns.Core.pageItems(ns.state)) do observe(itemID) end
-    local active = tracker:activeItems(now)
-    for _, itemID in ipairs(active) do observe(itemID) end
-    for _, itemID in ipairs(active) do
+    -- Recomputed: a timer the readings above just started also gets its pool members read.
+    for _, itemID in ipairs(tracker:activeItems(now)) do
         for _, member in ipairs(tracker:poolMembers(itemID)) do
             local count = Export.ItemCount(member)
             if count and count>0 then observe(member) end

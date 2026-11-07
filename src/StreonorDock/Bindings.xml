@@ -2,4 +2,21 @@
     <Binding name="STREONORDOCK_NEXT" header="STREONORDOCK">StreonorDock_Page("next")</Binding>
     <Binding name="STREONORDOCK_PREV">StreonorDock_Page("prev")</Binding>
     <Binding name="STREONORDOCK_HOME">StreonorDock_Page("home")</Binding>
+    <!-- A/B diagnostic only: lets you bind a key to a slot button manually in the Key Bindings UI.
+         StreonorDock itself never calls SetBinding/SaveBindings; its chords use override bindings. -->
+    <Binding name="CLICK StreonorDockSlot1:LeftButton" header="STREONORDOCK_SLOTS"></Binding>
+    <Binding name="CLICK StreonorDockSlot2:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot3:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot4:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot5:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot6:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot7:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot8:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot9:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot10:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot11:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot12:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot13:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot14:LeftButton"></Binding>
+    <Binding name="CLICK StreonorDockSlot15:LeftButton"></Binding>
 </Bindings>

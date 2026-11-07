@@ -1,0 +1,20 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!-- The 15 persistent secure key buttons. Declared in XML so they exist after a /reload in
+         combat. No parent, size or anchor: never drawn, still clickable by a binding. All
+         attributes and bindings are applied from Secure.lua, out of combat only. -->
+    <Button name="StreonorDockSlot1" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot2" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot3" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot4" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot5" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot6" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot7" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot8" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot9" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot10" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot11" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot12" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot13" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot14" inherits="SecureActionButtonTemplate"/>
+    <Button name="StreonorDockSlot15" inherits="SecureActionButtonTemplate"/>
+</Ui>

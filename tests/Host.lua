@@ -1,9 +1,13 @@
 local addonName, ns = ...
 local A = ns.Assert
--- Isolated fake WoW host for adapter tests. Unexpected globals are errors; protected operations
--- (secure attributes, click registration, override bindings) THROW when called in combat, so a
--- test fails if the addon ever attempts them during lockdown. No real game API is modelled
--- beyond what these tests assert; passing here proves lifecycle logic, not client behavior.
+-- Isolated fake WoW host for adapter tests. Unexpected globals are errors. Protected operations
+-- attempted in combat (secure frame attributes/clicks/scripts/show/hide/points, secure frame
+-- creation, override bindings) are BLOCKED like the client does: ignored and COUNTED in
+-- h.blocked. They do not throw, so the addon's own pcall/ns.Safe cannot hide them. run.lua fails
+-- any test whose hosts recorded a blocked attempt or printed an addon "internal error" (unless the
+-- test explicitly allows it). No real game API is modelled beyond what the tests assert;
+-- passing proves lifecycle logic only, not client behavior.
+ns.hosts = {}
 local SECRET = setmetatable({}, {__tostring=function() error("secret printed") end,
     __concat=function() error("secret concatenated") end, __lt=function() error("secret compared") end,
     __le=function() error("secret compared") end, __index=function() error("secret indexed") end})
@@ -13,16 +17,27 @@ function ns.host(options)
     options = options or {}
     local h = {frames={}, messages={}, combat=false, time=100, overrides={}, ordinary={},
         cursor={}, keyDown=true, items={}, spells={}, requests={}, timers={}, money=5000,
-        unknownEvents=options.unknownEvents or {}, protectedCalls=0, setBindingCalls=0, cleared=0}
+        unknownEvents=options.unknownEvents or {}, protectedCalls=0, setBindingCalls=0, cleared=0,
+        blocked=0, blockedNames={}, internalErrors=0}
+    ns.hosts[#ns.hosts+1] = h
     local env = {type=type,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,select=select,
         math=math,string=string,table=table,setmetatable=setmetatable,pcall=pcall,unpack=unpack,next=next,
         error=error,rawequal=rawequal,
-        print=function(msg) h.messages[#h.messages+1]=msg end,
+        print=function(msg)
+            h.messages[#h.messages+1]=msg
+            if string.find(tostring(msg), "internal error", 1, true) then h.internalErrors=h.internalErrors+1 end
+        end,
         SlashCmdList={}, StreonorDockCharDB=options.saved, StreonorDockDB=options.db}
     h.env = env
+    -- true = allowed. In combat the attempt is blocked: counted and ignored, never thrown.
     local function protected(name)
-        if h.combat then error("ADDON_ACTION_BLOCKED " .. name .. " in combat") end
+        if h.combat then
+            h.blocked = h.blocked + 1
+            h.blockedNames[#h.blockedNames+1] = name
+            return false
+        end
         h.protectedCalls = h.protectedCalls + 1
+        return true
     end
     local function object(kind, name, parent, template)
         local o = {kind=kind, name=name, parent=parent, template=template, scripts={}, attrs={},
@@ -30,26 +45,39 @@ function ns.host(options)
         o.secure = template=="SecureActionButtonTemplate"
         local methods = {}
         function methods:GetName() return self.name end
-        function methods:SetScript(which, fn) self.scripts[which]=fn end
+        function methods:SetScript(which, fn)
+            if self.secure and not protected("SetScript") then return end
+            self.scripts[which]=fn
+        end
         function methods:GetScript(which) return self.scripts[which] end
         function methods:RegisterEvent(event)
             if h.unknownEvents[event] then error("Attempt to register unknown event " .. event) end
             self.events[event]=true
         end
         function methods:SetAttribute(key, value)
-            if self.secure then protected("SetAttribute") end
+            if self.secure and not protected("SetAttribute") then return end
             self.attrs[key]=value
         end
         function methods:GetAttribute(key) return self.attrs[key] end
         function methods:RegisterForClicks(...)
-            if self.secure then protected("RegisterForClicks") end
+            if self.secure and not protected("RegisterForClicks") then return end
             self.clicks={...}
         end
-        function methods:SetPoint(...) self.points[#self.points+1]={...} end
-        function methods:ClearAllPoints() self.points={} end
+        function methods:SetPoint(...)
+            if self.secure and not protected("SetPoint") then return end
+            self.points[#self.points+1]={...}
+        end
+        function methods:ClearAllPoints()
+            if self.secure and not protected("ClearAllPoints") then return end
+            self.points={}
+        end
         function methods:GetPoint() local p=self.points[1]; if p then return p[1], p[2], p[3], p[4], p[5] end end
-        function methods:Show() if not self.shown then self.shown=true; if self.scripts.OnShow then self.scripts.OnShow(self) end end end
-        function methods:Hide() if self.shown then self.shown=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end end
+        function methods:Show()
+            if self.secure and not protected("Show") then return end
+            if not self.shown then self.shown=true; if self.scripts.OnShow then self.scripts.OnShow(self) end end end
+        function methods:Hide()
+            if self.secure and not protected("Hide") then return end
+            if self.shown then self.shown=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end end
         function methods:IsShown() return self.shown end
         function methods:SetText(text) self.text=text end
         function methods:GetText() return self.text end
@@ -65,7 +93,7 @@ function ns.host(options)
     end
     h.object = object
     env.CreateFrame = function(kind, name, parent, template)
-        if template=="SecureActionButtonTemplate" then protected("CreateFrame secure") end
+        if template=="SecureActionButtonTemplate" and not protected("CreateFrame secure") then return nil end
         local o = object(kind, name, parent, template)
         h.frames[#h.frames+1] = o
         return o
@@ -81,11 +109,14 @@ function ns.host(options)
     env.GetCursorInfo = function() return unpack(h.cursor) end
     env.ClearCursor = function() h.cursor={} end
     env.SetOverrideBindingClick = function(owner, priority, key, button, mouse)
-        protected("SetOverrideBindingClick")
+        if not protected("SetOverrideBindingClick") then return end
         h.overrides[key] = "CLICK " .. button .. ":" .. (mouse or "LeftButton")
         h.overrideOwner = owner
     end
-    env.ClearOverrideBindings = function() protected("ClearOverrideBindings"); h.overrides={}; h.cleared=h.cleared+1 end
+    env.ClearOverrideBindings = function()
+        if not protected("ClearOverrideBindings") then return end
+        h.overrides={}; h.cleared=h.cleared+1
+    end
     env.GetBindingAction = function(key, checkOverride)
         if checkOverride and h.overrides[key] then return h.overrides[key] end
         return h.ordinary[key] or ""
@@ -122,12 +153,26 @@ function ns.host(options)
         if not allowed[key] then error("unexpected global " .. tostring(key), 2) end
     end})
     h.ns = {}
-    for _, name in ipairs({"Core","CooldownData","Cooldown","Panel","Secure","Export","Init"}) do
-        local chunk, err = loadfile("src/StreonorDock/" .. name .. ".lua")
-        A.equal(type(chunk), "function", err or name)
-        setfenv(chunk, env); chunk(addonName, h.ns)
+    -- Load exactly what the TOC lists, in order. XML files: model the declared secure buttons
+    -- (created by the client at load time, even in combat).
+    local toc = io.open("src/StreonorDock/StreonorDock.toc", "rb"); local text = toc:read("*a"); toc:close()
+    for line in string.gmatch(text, "[^\r\n]+") do
+        if string.match(line, "%.lua$") then
+            local chunk, err = loadfile("src/StreonorDock/" .. line)
+            A.equal(type(chunk), "function", err or line)
+            setfenv(chunk, env); chunk(addonName, h.ns)
+        elseif string.match(line, "%.xml$") then
+            local xf = io.open("src/StreonorDock/" .. line, "rb"); local xml = xf:read("*a"); xf:close()
+            for name, inherits in string.gmatch(xml, '<Button name="([%w_]+)" inherits="([%w_]+)"/>') do
+                local o = object("Button", name, nil, inherits)
+                o.xml = true
+                h.frames[#h.frames+1] = o
+                rawset(env, name, o)
+            end
+        end
     end
-    h.eventFrame = h.frames[1]
+    for _, f in ipairs(h.frames) do if f.scripts.OnEvent then h.eventFrame = f end end
+    function h.created() local n=0; for _, f in ipairs(h.frames) do if not rawget(f,"xml") then n=n+1 end end; return n end
     function h.event(name, ...) h.eventFrame.scripts.OnEvent(h.eventFrame, name, ...) end
     function h.slash(text) env.SlashCmdList.STREONORDOCK(text) end
     function h.button(i) return h.named("StreonorDockSlot" .. i) end

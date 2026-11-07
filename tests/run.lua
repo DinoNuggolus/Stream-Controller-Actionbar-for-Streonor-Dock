@@ -13,8 +13,28 @@ load("tests/core_spec.lua")
 load("tests/cooldown_spec.lua")
 load("tests/init_spec.lua")
 local failures = 0
+-- Every fake host created by a test must end with zero blocked protected attempts and zero
+-- addon "internal error" messages, unless the test opted in (h.allowBlocked / h.allowInternal).
+local function hostProblems(first)
+    for i=first,#ns.hosts do
+        local h = ns.hosts[i]
+        if h.blocked>0 and not h.allowBlocked then
+            return "blocked protected call(s) in combat: " .. table.concat(h.blockedNames, ", ")
+        end
+        if h.internalErrors>0 and not h.allowInternal then
+            for _, m in ipairs(h.messages) do
+                if string.find(m, "internal error", 1, true) then return "addon printed: " .. m end
+            end
+        end
+    end
+end
 for _, test in ipairs(ns.Assert.tests) do
+    local first = #ns.hosts + 1
     local ok, err = pcall(test[2])
+    if ok then
+        local problem = hostProblems(first)
+        if problem then ok, err = false, problem end
+    end
     if not ok then failures = failures + 1; print("FAIL " .. test[1] .. ": " .. tostring(err)) end
 end
 print(#ns.Assert.tests .. " tests, " .. ns.Assert.assertions .. " assertions, " .. failures .. " failures")

@@ -198,17 +198,26 @@ local function evidence(self, itemID, start, length, now)
     return true
 end
 -- Readable game reading (start, duration on the same clock as now). Authoritative for timers.
-function Tracker:observe(itemID, start, length, now)
+-- count (optional, plain): bag count of itemID. A "ready" reading from an item with count 0 is
+-- ignored: an absent item cannot show the pool/group lock that is still real.
+-- A reading at or below the GCD (or 0,0) means "ready": it clears an estimate/used marker after
+-- the pre-ack grace window, and 0,0 also clears a game timer; a GCD sample never clears one.
+function Tracker:observe(itemID, start, length, now, count)
     local s = self.issecret
-    if s(itemID) or s(start) or s(length) or s(now) then return false end
+    if s(itemID) or s(start) or s(length) or s(now) or s(count) then return false end
     if not item(itemID) or not number(start) or not number(length) or not number(now) then return false end
     if start>now then return false end
+    local ready = start==0 and length==0
+    local short = not ready and length<=Tracker.GCD
+    if (ready or short) and number(count) and count==0 then return false end
     local key = self:key(itemID)
     local entry = self.items[key]
-    local foreign = entry and entry.itemID~=itemID and type(key)=="string" and string.sub(key,1,5)=="pool:"
+    local foreign = entry and entry.itemID~=itemID and type(key)=="string"
     if foreign and active(entry, now) then
-        -- Another pool member's reading while the starter's timer runs: sharing evidence only.
-        -- The starter's own readings reconcile the timer; a member never clears or replaces it.
+        -- Another member's reading (pool OR multi-item group) while the starter's timer runs:
+        -- sharing evidence only. The starter's own readings reconcile the timer; a member never
+        -- clears or replaces it.
+        if short then return false end
         evidence(self, itemID, start, length, now)
         -- A member pressed and used DURING the lock still teaches its own length (and is itself
         -- evidence the pool is not one lock).
@@ -219,12 +228,13 @@ function Tracker:observe(itemID, start, length, now)
         end
         return true
     end
-    if start==0 and length==0 then
+    if ready or short then
         if entry and entry.source=="est" and entry.itemID==itemID and now-entry.startedAt<Tracker.GRACE then return false end
+        if short and not (entry and entry.source=="est") then return false end
         self.items[key]=nil
         return true
     end
-    if length<=Tracker.GCD or not duration(length) then return false end
+    if not duration(length) then return false end
     local pressedAt = self.presses[itemID]
     if pressedAt and math.abs(start-pressedAt)<=Tracker.OWN_WINDOW then
         self.presses[itemID]=nil

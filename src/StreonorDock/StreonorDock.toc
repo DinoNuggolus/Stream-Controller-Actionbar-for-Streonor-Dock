@@ -1,4 +1,4 @@
-﻿## Interface: 16001
+## Interface: 16001
 ## Title: StreonorDock
 ## Notes: Streonor S15 controller dock: 15 chord keys, pages, item readouts, saved snapshot
 ## Author: DinoNuggolus
@@ -12,6 +12,7 @@ Core.lua
 CooldownData.lua
 Cooldown.lua
 Panel.lua
+Slots.xml
 Secure.lua
 Export.lua
 Init.lua

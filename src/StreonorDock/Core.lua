@@ -175,17 +175,20 @@ function Core.pageItems(state)
     table.sort(list)
     return list
 end
--- Secure attribute plan for one key slot. false = clear the attribute (never leave stale ones).
+-- Secure attribute plan for one key slot. Keys are "*"-prefixed with button suffix 1, so held
+-- modifiers (the ALT-CTRL-SHIFT chord itself) cannot change the attribute lookup, and the binding
+-- click is LeftButton. false = clear the attribute (never leave stale ones).
 -- spellName must already be a plain, non-secret string or nil.
+Core.SECURE_KEYS = {"*type1","*spell1","*item1"}
 function Core.secureAttributes(value, spellName)
     if type(value)=="table" and value.kind=="spell" and id(value.id) then
         local spell = value.id
         if not value.pinned and type(spellName)=="string" and spellName~="" then spell=spellName end
-        return {type="spell",spell=spell,item=false}
+        return {["*type1"]="spell",["*spell1"]=spell,["*item1"]=false}
     elseif type(value)=="table" and value.kind=="item" and id(value.id) then
-        return {type="item",spell=false,item="item:" .. value.id}
+        return {["*type1"]="item",["*spell1"]=false,["*item1"]="item:" .. value.id}
     end
-    return {type=false,spell=false,item=false}
+    return {["*type1"]=false,["*spell1"]=false,["*item1"]=false}
 end
 function Core.chordKey(index)
     local chord = Core.chord(index)

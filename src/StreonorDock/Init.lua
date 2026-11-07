@@ -69,8 +69,7 @@ local function sanitizeSettings(db)
     if type(db.settings)~="table" then db.settings={} end
     local e = db.settings.estimates
     if e~="on" and e~="off" then db.settings.estimates="auto" end
-    if type(db.probe)~="table" then db.probe={} end
-    if type(db.probe.combatReadable)~="boolean" then db.probe.combatReadable=nil end
+    ns.Export.ResetProbeForBuild(ns.Export.Build())
     if type(db.cooldownLearned)~="table" then db.cooldownLearned={} end
     if type(db.ui)~="table" then db.ui={} end
 end
@@ -321,6 +320,12 @@ BINDING_HEADER_STREONORDOCK="StreonorDock"
 BINDING_NAME_STREONORDOCK_NEXT="Next page (out of combat)"
 BINDING_NAME_STREONORDOCK_PREV="Previous page (out of combat)"
 BINDING_NAME_STREONORDOCK_HOME="Home page (out of combat)"
+-- A/B diagnostic bindings (Bindings.xml): bind a spare key here to test a slot button without
+-- our override path. The addon never sets or saves these itself.
+BINDING_HEADER_STREONORDOCK_SLOTS="StreonorDock slots (diagnostic)"
+for i=1,15 do
+    _G["BINDING_NAME_CLICK StreonorDockSlot" .. i .. ":LeftButton"]="Slot " .. i .. " (same as " .. ns.Core.chord(i) .. ")"
+end
 local frame=CreateFrame("Frame")
 for event in pairs(handlers) do
     -- An event unknown to this client would throw; record it for /sdock probe instead.

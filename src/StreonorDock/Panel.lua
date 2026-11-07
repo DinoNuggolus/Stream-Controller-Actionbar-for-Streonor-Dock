@@ -229,7 +229,10 @@ local function schedule(seconds)
     local function fire()
         if token~=timerToken then return end
         timerHandle = nil
-        ns.Safe("cooldown timer", function() Panel.RefreshCooldowns(); ns.Export.MarkDirty() end)
+        -- Re-read the game first: a pending USED/est marker may be resolved by a plain reading.
+        ns.Safe("cooldown timer", function()
+            ns.Export.ObserveItems(); Panel.RefreshCooldowns(); ns.Export.MarkDirty()
+        end)
     end
     local delay = math.max(0.1, seconds + 0.05)
     if type(C_Timer.NewTimer)=="function" then

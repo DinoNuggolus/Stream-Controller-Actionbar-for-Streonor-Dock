@@ -10,9 +10,14 @@ A.test("load defers SavedVariables and owns exactly one event frame",function()
     local h=host()
     A.equal(rawget(h.env,"StreonorDockDB"),nil)
     A.equal(rawget(h.env,"StreonorDockCharDB"),nil)
-    A.equal(#h.frames,1); A.equal(h.frames[1].events.ADDON_LOADED,true)
+    A.equal(h.created(),1,"only the event frame is created at load"); A.equal(h.eventFrame.events.ADDON_LOADED,true)
+    for i=1,15 do
+        local b=h.button(i)
+        A.equal(b.xml,true); A.equal(b.template,"SecureActionButtonTemplate"); A.equal(rawget(b,"parent"),nil)
+        A.equal(rawget(b,"clicks"),nil); A.deep(b.attrs,{})
+    end
     h.event("ADDON_LOADED","OtherAddon")
-    A.equal(rawget(h.env,"StreonorDockDB"),nil); A.equal(#h.frames,1)
+    A.equal(rawget(h.env,"StreonorDockDB"),nil); A.equal(h.created(),1)
     h.event("ADDON_LOADED",addonName)
     A.equal(type(h.env.StreonorDockDB),"table")
     A.equal(#h.env.StreonorDockCharDB.pages[1].slots,15)
@@ -59,16 +64,18 @@ A.test("pager in combat rejects with message and leaves state deeply unchanged",
     A.deep(h.env.StreonorDockCharDB,snapshot,"nothing was queued")
     local newState,accepted=h.env.StreonorDock_Page("next")
     A.equal(accepted,true); A.equal(newState.currentPage,2); A.equal(h.env.StreonorDockCharDB,newState)
-    A.equal(h.button(1).attrs.type,nil,"page 2 slot 1 is empty: attributes cleared")
-    h.env.StreonorDock_Page("home"); A.equal(h.button(1).attrs.spell,42)
+    A.equal(h.button(1).attrs["*type1"],nil,"page 2 slot 1 is empty: attributes cleared")
+    h.env.StreonorDock_Page("home"); A.equal(h.button(1).attrs["*spell1"],42)
 end)
 A.test("secure setup during combat is queued once and runs after regen",function()
     local h=host()
     h.combat=true
     h.login(); h.event("PLAYER_ENTERING_WORLD"); h.event("SPELLS_CHANGED")
-    A.equal(h.button(1),nil,"no secure frame created in combat"); A.equal(h.protectedCalls,0)
+    A.equal(h.protectedCalls,0,"nothing protected attempted in combat"); A.equal(h.blocked,0)
+    A.equal(rawget(h.button(1),"clicks"),nil); A.deep(h.button(1).attrs,{})
+    A.equal(next(h.overrides),nil)
     h.event("PLAYER_REGEN_ENABLED")   -- still locked down: nothing runs
-    A.equal(h.button(1),nil)
+    A.equal(h.protectedCalls,0); A.equal(h.blocked,0)
     h.combat=false; h.event("PLAYER_REGEN_ENABLED")
     for i=1,15 do
         A.equal(h.button(i).template,"SecureActionButtonTemplate")
@@ -84,19 +91,27 @@ A.test("attributes follow kind changes and never keep stale fields",function()
     local b=h.button(3)
     A.deep(b.attrs,{useOnKeyDown=true})
     h.ns.Edit("slots",3,{kind="spell",id=42})
-    A.equal(b.attrs.type,"spell"); A.equal(b.attrs.spell,"Moonfire"); A.equal(b.attrs.item,nil)
+    A.deep(b.attrs,{useOnKeyDown=true,["*type1"]="spell",["*spell1"]="Moonfire"})
     h.ns.Edit("slots",3,{kind="item",id=8})
-    A.equal(b.attrs.type,"item"); A.equal(b.attrs.item,"item:8"); A.equal(b.attrs.spell,nil)
+    A.deep(b.attrs,{useOnKeyDown=true,["*type1"]="item",["*item1"]="item:8"},"stale *spell1 cleared")
     h.ns.Edit("slots",3,{kind="spell",id=42,pinned=true})
-    A.equal(b.attrs.spell,42,"pinned rank casts by ID"); A.equal(b.attrs.item,nil)
+    A.deep(b.attrs,{useOnKeyDown=true,["*type1"]="spell",["*spell1"]=42},"pinned rank by ID; stale *item1 cleared")
+    for _, key in ipairs({"type","spell","item"}) do A.equal(b.attrs[key],nil,"no unprefixed " .. key) end
     h.ns.Edit("slots",3,{kind="empty"})
     A.deep(b.attrs,{useOnKeyDown=true})
     -- Uncached spell name: cast by ID until SPELL_DATA_LOAD_RESULT, then by name.
     h.ns.Edit("slots",4,{kind="spell",id=77})
-    A.equal(h.button(4).attrs.spell,77)
+    A.equal(h.button(4).attrs["*spell1"],77)
     h.spells[77]={name="Rejuvenation",icon=1,cached=true}
     h.event("SPELL_DATA_LOAD_RESULT",77,true)
-    A.equal(h.button(4).attrs.spell,"Rejuvenation")
+    A.equal(h.button(4).attrs["*spell1"],"Rejuvenation")
+    -- Nothing changed: SPELLS_CHANGED and regen do not rewrite attributes or bindings.
+    local writes, cleared=h.ns.Secure.status.writes, h.cleared
+    h.event("SPELLS_CHANGED"); h.event("PLAYER_REGEN_ENABLED"); h.event("PLAYER_ENTERING_WORLD")
+    A.equal(h.ns.Secure.status.writes,writes); A.equal(h.cleared,cleared)
+    -- A lost override (e.g. another owner cleared it) is detected and re-applied.
+    h.overrides["ALT-CTRL-SHIFT-5"]=nil; h.event("PLAYER_REGEN_ENABLED")
+    A.equal(h.overrides["ALT-CTRL-SHIFT-5"],"CLICK StreonorDockSlot5:LeftButton")
 end)
 A.test("click direction matches ActionButtonUseKeyDown and follows CVAR_UPDATE",function()
     local h=host()
@@ -157,8 +172,8 @@ A.test("drag and drop normalizes cursor and rejects without changing state",func
     key.scripts.OnClick(key,"RightButton")
     A.deep(h.cursor,{}); A.equal(h.ns.state.pages[1].slots[5].id,774)
     key.scripts.OnClick(key,"RightButton")
-    A.deep(h.ns.state.pages[1].slots[5],{kind="empty"}); A.equal(h.button(5).attrs.type,nil)
-    A.equal(key.attrs.type,nil,"editor widgets never carry action attributes")
+    A.deep(h.ns.state.pages[1].slots[5],{kind="empty"}); A.equal(h.button(5).attrs["*type1"],nil)
+    A.equal(key.attrs["*type1"],nil,"editor widgets never carry action attributes")
 end)
 A.test("late metadata callback never overwrites a reassigned slot",function()
     local h=host()
@@ -174,7 +189,7 @@ A.test("late metadata callback never overwrites a reassigned slot",function()
     b.icon.texture="sentinel"
     h.event("SPELL_DATA_LOAD_RESULT",42,true)
     A.equal(b.icon.texture,"sentinel","no refresh for a slot that no longer holds spell 42")
-    A.equal(h.button(1).attrs.item,"item:8")
+    A.equal(h.button(1).attrs["*item1"],"item:8")
     -- A matching slot does refresh, and a failed load is not re-requested in a loop.
     h.ns.Edit("slots",2,{kind="spell",id=43})
     local count=#h.requests
@@ -235,20 +250,30 @@ A.test("press guards: count, non-item slots, and estimates setting",function()
     h.login()
     h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("slots",2,{kind="spell",id=42})
     h.ns.Edit("slots",3,{kind="item",id=9})
+    -- Out of combat with a plain reading: the press is recorded, no estimate (Amendment 2.7).
+    h.button(3).scripts.PostClick(h.button(3),"LeftButton",true)
+    A.equal(h.editor("slots",3).label.text,"","starter food out of combat: no USED marker")
+    A.deep(h.ns.cooldowns:activeItems(100),{})
+    h.combat=true
     h.button(1).scripts.PostClick(h.button(1),"LeftButton",true)
     A.equal(h.ns.cooldowns:running(8,100),false,"count 0: no timer")
     h.button(2).scripts.PostClick(h.button(2),"LeftButton",true)
     A.deep(h.ns.cooldowns:activeItems(100),{})
     h.button(3).scripts.PostClick(h.button(3),"LeftButton",true)
-    A.equal(h.editor("slots",3).label.text,"USED 0s","unknown length: USED, no countdown")
-    -- Auto mode: a readable reading during combat turns estimates off.
-    h.combat=true; h.items[9].cd={0,0,true}; h.time=103; h.event("BAG_UPDATE_COOLDOWN")
+    A.equal(h.editor("slots",3).label.text,"USED 0s","unknown length in combat: USED, no countdown")
+    -- A plain READY reading in combat is not evidence; after the grace window it resolves USED.
+    h.items[9].cd={0,0,true}; h.time=103; h.event("BAG_UPDATE_COOLDOWN")
+    A.equal(h.env.StreonorDockDB.probe.combatReadable,nil); A.equal(h.ns.Export.EstimatesEnabled(),true)
+    A.equal(h.editor("slots",3).label.text,"","ready reading cleared the USED marker")
+    -- A readable ACTIVE cooldown in combat turns auto estimates off.
+    h.items[9].cd={103,60,true}; h.event("BAG_UPDATE_COOLDOWN")
     A.equal(h.env.StreonorDockDB.probe.combatReadable,true); A.equal(h.ns.Export.EstimatesEnabled(),false)
     h.items[8].count=5; h.button(1).scripts.PostClick(h.button(1),"LeftButton",true)
     A.equal(h.ns.cooldowns:running(8,103),false)
-    h.combat=false; h.slash("estimates on"); A.equal(h.ns.Export.EstimatesEnabled(),true)
+    h.slash("estimates on"); A.equal(h.ns.Export.EstimatesEnabled(),true)
     h.button(1).scripts.PostClick(h.button(1),"LeftButton",true)
     A.equal(h.ns.cooldowns:running(8,103),true)
+    h.combat=false
 end)
 A.test("one timer only while a countdown is active",function()
     local h=host({db={cooldownLearned={items={[8]={duration=30}}}}})
@@ -257,7 +282,9 @@ A.test("one timer only while a countdown is active",function()
     h.ns.Edit("readouts",1,{kind="item",itemID=8})
     h.timers={}
     h.ns.Edit("slots",1,{kind="item",id=8}); h.timers={}
+    h.combat=true
     h.button(1).scripts.PostClick(h.button(1),"LeftButton",true)
+    h.combat=false
     local armed=0
     for _, t in ipairs(h.timers) do if t.Cancel and not t.cancelled then armed=armed+1 end end
     A.equal(armed,1)
@@ -306,6 +333,10 @@ A.test("no addon Lua file starts with a BOM and every TOC file exists",function(
         end
     end
     A.equal(files,7)
+    for _, name in ipairs({"StreonorDock.toc","Bindings.xml","Slots.xml"}) do
+        local f=io.open("src/StreonorDock/" .. name,"rb"); local head=f:read(3); f:close()
+        A.equal(head~="\239\187\191",true,name .. " has no BOM")
+    end
 end)
 A.test("degrades gracefully: empty bags, no spells, no cooldown items",function()
     local h=host()
@@ -349,4 +380,69 @@ A.test("probe lists held table groups and cooldowns prints learned own-use data"
     h.messages={}; h.slash("probe")
     A.equal(h.said("health_potion [pool potion]: table 120s, observed 120s (verified this build); pool sharing seen"),true)
     A.equal(h.editor("slots",1).label.text,"")
+end)
+A.test("combat readability latch: ready readings are no evidence, sealed wins, per build",function()
+    local h=host({db={probe={build="old.1",combatReadable=true}},env={GetBuildInfo=function() return "1.60.1","70790","x",16001 end}})
+    h.items[8]={name="Potion",icon=500,count=1}
+    h.login()
+    A.equal(h.env.StreonorDockDB.probe.build,"1.60.1.70790"); A.equal(h.env.StreonorDockDB.probe.combatReadable,nil,"build change resets")
+    A.equal(h.ns.Export.EstimatesEnabled(),true)
+    h.ns.Edit("readouts",1,{kind="item",itemID=8})
+    h.combat=true
+    h.items[8].cd={0,0,true}; h.event("BAG_UPDATE_COOLDOWN")          -- plain ready reading
+    h.items[8].cd={100,1.5,true}; h.event("BAG_UPDATE_COOLDOWN")      -- plain GCD reading
+    A.equal(h.env.StreonorDockDB.probe.combatReadable,nil); A.equal(h.ns.Export.EstimatesEnabled(),true)
+    h.items[8].cd={SECRET,SECRET,SECRET}; h.event("BAG_UPDATE_COOLDOWN")  -- sealed active cooldown
+    A.equal(h.ns.Export.stats.sealed,1,"classified sealed, not unavailable")
+    A.equal(h.env.StreonorDockDB.probe.combatReadable,false); A.equal(h.ns.Export.EstimatesEnabled(),true)
+    h.items[8].cd={100,60,true}; h.event("BAG_UPDATE_COOLDOWN")       -- later readable active
+    A.equal(h.env.StreonorDockDB.probe.combatReadable,false,"sealed evidence wins on this build")
+    h.combat=false
+    -- Same build next session keeps the evidence.
+    local db=h.env.StreonorDockDB
+    local h2=host({db=db,env={GetBuildInfo=function() return "1.60.1","70790","x",16001 end}})
+    h2.login(); A.equal(h2.env.StreonorDockDB.probe.combatReadable,false)
+end)
+A.test("sealed vs unavailable classification of item cooldown readings",function()
+    local h=host()
+    h.login()
+    A.equal(select(2,h.ns.Export.ReadItemCooldown(0)),"unavailable")
+    h.items[8]={count=1,cd={SECRET,5,true}}
+    A.equal(select(2,h.ns.Export.ReadItemCooldown(8)),"sealed")
+    h.items[8].cd={100,SECRET,true}; A.equal(select(2,h.ns.Export.ReadItemCooldown(8)),"sealed")
+    h.items[8].cd={100,30,SECRET}; A.equal(select(2,h.ns.Export.ReadItemCooldown(8)),"sealed")
+    h.items[8].cd={nil,nil,nil}; A.equal(select(2,h.ns.Export.ReadItemCooldown(8)),"unavailable")
+    h.items[8].cd={100,30,false}; A.equal(select(2,h.ns.Export.ReadItemCooldown(8)),"paused")
+    h.items[8].cd={100,30,true}; local s,d=h.ns.Export.ReadItemCooldown(8); A.equal(s,100); A.equal(d,30)
+    A.deep({h.ns.Export.stats.sealed,h.ns.Export.stats.unavailable,h.ns.Export.stats.readable},{3,1,1})
+end)
+A.test("metadata results: unrequested IDs ignored, retries capped",function()
+    local h=host()
+    h.login()
+    h.ns.Edit("slots",1,{kind="spell",id=42})
+    local refreshed=0
+    local original=h.ns.Panel.RefreshSlots
+    h.ns.Panel.RefreshSlots=function(list) refreshed=refreshed+#list; return original(list) end
+    h.event("SPELL_DATA_LOAD_RESULT",777,true)                          -- someone else's load
+    A.equal(refreshed,0)
+    for _=1,10 do h.event("SPELL_DATA_LOAD_RESULT",42,true); h.ns.Panel.Refresh() end
+    local n=0
+    for _, r in ipairs(h.requests) do if r=="spell:42" then n=n+1 end end
+    A.equal(n,h.ns.Export.MAX_REQUESTS,"request -> result -> request loop is capped")
+end)
+A.test("diagnostic CLICK bindings are declared and named, never set by the addon",function()
+    local f=io.open("src/StreonorDock/Bindings.xml","rb"); local xml=f:read("*a"); f:close()
+    local n=0
+    for i in string.gmatch(xml,'<Binding name="CLICK StreonorDockSlot(%d+):LeftButton"') do n=n+1; A.equal(tonumber(i),n) end
+    A.equal(n,15); A.equal(string.find(xml,'header="STREONORDOCK_SLOTS"',1,true)~=nil,true)
+    A.equal(string.find(xml,'header="STREONORDOCK"',1,true)~=nil,true)
+    local h=host(); h.login()
+    A.equal(h.env.BINDING_HEADER_STREONORDOCK_SLOTS~=nil,true)
+    A.equal(h.env["BINDING_NAME_CLICK StreonorDockSlot11:LeftButton"],"Slot 11 (same as ALT-CTRL-SHIFT--)")
+    A.equal(h.setBindingCalls,0)
+    for _, file in ipairs({"Core","Cooldown","CooldownData","Panel","Secure","Export","Init"}) do
+        local src=io.open("src/StreonorDock/" .. file .. ".lua","rb"); local text=src:read("*a"); src:close()
+        local code=string.gsub(text,"%-%-[^\n]*","")
+        A.equal(string.find(code,"SetBinding%s*%(")==nil and string.find(code,"SaveBindings%s*%(")==nil,true,file)
+    end
 end)
