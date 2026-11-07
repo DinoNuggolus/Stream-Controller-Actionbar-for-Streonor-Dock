@@ -64,7 +64,7 @@
   decided once at drop time via C_SpellBook rank APIs (BindPad's approach on this client).
 - Ruling: overrides bound for all 15 chords even when a slot is empty (empty slot = no-op), so a
   chord never falls through to some other binding. isPriority=false.
-- Result: 49 tests / 3177 assertions / 0 failures; luac -p clean on all 15 Lua files.
+- Result: 49 tests / 3177 assertions / 0 failures; luac -p clean on all 13 Lua files (7 addon, 6 test).
 - Nothing deployed, pushed or remotely created. No game/WTF/Streonor edits.
 
 ### Unverified assumptions (part 2)
