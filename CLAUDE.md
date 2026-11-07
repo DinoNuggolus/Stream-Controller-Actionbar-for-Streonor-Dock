@@ -1,7 +1,7 @@
-﻿# StreonorDock
+# StreonorDock
 
 - type: original
-- status: part 1 in progress; no deployment or in-game verification
+- status: part 1 implemented and host-tested; no deployment or in-game verification
 - Author: DinoNuggolus; license: MIT
 - TOC Interface: 16001
 - SavedVariables: StreonorDockDB (account snapshot), StreonorDockCharDB (per-character layout)

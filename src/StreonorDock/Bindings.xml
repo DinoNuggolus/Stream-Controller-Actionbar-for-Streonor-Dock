@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="STREONORDOCK_NEXT" header="STREONORDOCK">StreonorDock_Page("next")</Binding>
+    <Binding name="STREONORDOCK_PREV">StreonorDock_Page("prev")</Binding>
+    <Binding name="STREONORDOCK_HOME">StreonorDock_Page("home")</Binding>
+</Bindings>

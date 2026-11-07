@@ -1,9 +1,17 @@
 ﻿## Interface: 16001
 ## Title: StreonorDock
-## Notes: Short description
+## Notes: Part 1 logic and adapter skeleton; saved snapshot companion planned
 ## Author: DinoNuggolus
 ## Version: 0.1.0
 ## SavedVariables: StreonorDockDB
+## SavedVariablesPerCharacter: StreonorDockCharDB
+## Category: Action Bars
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
 
-StreonorDock.lua
+Core.lua
+Cooldown.lua
+Panel.lua
+Secure.lua
+Export.lua
+Init.lua
 

@@ -10,6 +10,7 @@ ns.load = load
 load("tests/Assert.lua")
 load("tests/core_spec.lua")
 load("tests/cooldown_spec.lua")
+load("tests/init_spec.lua")
 local failures = 0
 for _, test in ipairs(ns.Assert.tests) do
     local ok, err = pcall(test[2])
