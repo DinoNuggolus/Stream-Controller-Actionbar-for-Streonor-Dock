@@ -1,12 +1,25 @@
 local addonName, ns = ...
--- PART 1 SKELETON: event/persistence/pager infrastructure only. No protected UI exists yet.
+-- Events (one frame, one handler table), persistence, edit/page entry points and /sdock.
 local handlers, pending = {}, {}
 local loaded = false
+local reported = {}
+local unavailableEvents = {}
 local function say(message) print("StreonorDock: " .. message) end
+ns.Say = say
+
+-- Fail soft: an error in one handler is reported once per label, never spammed.
+function ns.Safe(label, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok and not reported[label] then
+        reported[label] = true
+        say("internal error in " .. label .. " (reported once): " .. tostring(err))
+    end
+    return ok, err
+end
 function ns.RunOutOfCombat(work)
     if InCombatLockdown() then pending[#pending+1]=work else work() end
 end
-function handlers.PLAYER_REGEN_ENABLED()
+local function flushPending()
     if InCombatLockdown() then return end
     local work=pending
     pending={}
@@ -18,63 +31,247 @@ local function newProfileId()
     for i=1,8 do parts[i]=string.format("%04x",math.random(0,65535)) end
     return table.concat(parts,"-")
 end
+function ns.SetState(state)
+    ns.state=state
+    StreonorDockCharDB=state
+end
+-- After any accepted edit or page change: panel, secure attributes, cooldowns, snapshot.
+function ns.LayoutChanged()
+    ns.Safe("panel", ns.Panel.Refresh)
+    ns.Safe("secure", ns.Secure.Request)
+    ns.Safe("cooldowns", ns.Export.ObserveItems)
+    ns.Safe("panel cooldowns", ns.Panel.RefreshCooldowns)
+    ns.Safe("export", ns.Export.Refresh)
+end
+
+local editMessages = {combat="editing unavailable in combat", slot="that cannot be placed in this slot",
+    index="invalid slot", area="invalid slot"}
+-- Returns accepted, reason. Combat edits are rejected (not queued) and leave state untouched.
+function ns.Edit(area, index, value)
+    if not loaded then return false,"not-loaded" end
+    local state, accepted, reason = ns.Core.assign(ns.state, area, index, value, InCombatLockdown())
+    if not accepted then say(editMessages[reason] or ("edit rejected: " .. tostring(reason))); return false,reason end
+    ns.SetState(state)
+    ns.LayoutChanged()
+    return true
+end
+
+function StreonorDock_Page(action)
+    if not loaded then return nil,false,"not-loaded" end
+    local state, accepted, reason=ns.Core.page(ns.state,action,InCombatLockdown())
+    if accepted and state~=ns.state then ns.SetState(state); ns.LayoutChanged()
+    elseif reason=="combat" then say("paging unavailable in combat")
+    elseif reason=="limit" then say("maximum of 10 pages reached") end
+    return state,accepted,reason
+end
+
+local function sanitizeSettings(db)
+    if type(db.settings)~="table" then db.settings={} end
+    local e = db.settings.estimates
+    if e~="on" and e~="off" then db.settings.estimates="auto" end
+    if type(db.probe)~="table" then db.probe={} end
+    if type(db.probe.combatReadable)~="boolean" then db.probe.combatReadable=nil end
+    if type(db.cooldownLengths)~="table" then db.cooldownLengths={} end
+    if type(db.ui)~="table" then db.ui={} end
+end
+
 function handlers.ADDON_LOADED(_, name)
     if name~=addonName or loaded then return end
     -- These are deliberately the only creation/read sites before initialization completes.
     if type(StreonorDockDB)~="table" then StreonorDockDB={} end
+    sanitizeSettings(StreonorDockDB)
     local saved=StreonorDockCharDB
     local profileId
     if type(saved)=="table" and type(saved.profileId)=="string" and saved.profileId~="" then
         profileId=saved.profileId
     else profileId=newProfileId() end
-    StreonorDockCharDB=ns.Core.recover(saved,profileId)
-    ns.state=StreonorDockCharDB
-    ns.cooldowns=ns.CooldownTracker.new()
+    ns.SetState(ns.Core.recover(saved,profileId))
+    -- Learned item cooldown lengths persist account-wide per itemID.
+    ns.cooldowns=ns.CooldownTracker.new(StreonorDockDB.cooldownLengths, ns.CooldownGroups, ns.ItemGroups)
     loaded=true
-    -- TODO(part 2): queue protected initialization, refresh sanitized export after login.
+    ns.Safe("panel create", ns.Panel.Create)
+    -- Secure buttons/bindings: now if possible, else queued for PLAYER_REGEN_ENABLED.
+    ns.Safe("secure", ns.Secure.Request)
 end
-function StreonorDock_Page(action)
-    if not loaded then return nil,false,"not-loaded" end
-    local state, accepted, reason=ns.Core.page(ns.state,action,InCombatLockdown())
-    if accepted then ns.state=state; StreonorDockCharDB=state
-    elseif reason=="combat" then say("paging unavailable in combat")
-    elseif reason=="limit" then say("maximum of 10 pages reached") end
-    -- TODO(part 2): update secure actions, panel and export on an accepted page change.
-    return state,accepted,reason
+local function warnConflicts()
+    local status = ns.Secure.status
+    if status.bindings=="unavailable" then
+        say("override bindings are unavailable on this client: keys will not fire. See /sdock probe.")
+        return
+    end
+    if type(GetBindingAction)~="function" or not status.ready then return end
+    local _, conflicts = ns.Secure.Conflicts()
+    if conflicts>0 then say(conflicts .. " chord(s) also have other bindings; ours take precedence while loaded. /sdock chords") end
+end
+function handlers.PLAYER_LOGIN()
+    if not loaded then return end
+    ns.Safe("secure", ns.Secure.Request)
+    ns.LayoutChanged()
+    ns.Safe("conflicts", warnConflicts)
+end
+function handlers.PLAYER_ENTERING_WORLD()
+    if not loaded then return end
+    ns.Safe("secure", ns.Secure.Request)
+end
+function handlers.PLAYER_REGEN_ENABLED()
+    if InCombatLockdown() then return end
+    flushPending()
+    if not loaded then return end
+    -- Re-assert overrides/attributes after combat and reconcile cooldowns with readable data.
+    ns.Safe("secure", ns.Secure.Request)
+    ns.Safe("cooldowns", ns.Export.ObserveItems)
+    ns.Safe("panel cooldowns", ns.Panel.RefreshCooldowns)
+    ns.Export.MarkDirty()
+end
+function handlers.CVAR_UPDATE(_, cvar)
+    if not loaded or ns.Export.issecret(cvar) then return end
+    if cvar=="ActionButtonUseKeyDown" or cvar=="ACTION_BUTTON_USE_KEY_DOWN" then ns.Safe("secure", ns.Secure.Request) end
+end
+function handlers.SPELLS_CHANGED()
+    if not loaded then return end
+    ns.Safe("panel", ns.Panel.Refresh)
+    ns.Safe("secure", ns.Secure.Request)
+end
+local function dataLoaded(kind, id, success)
+    if not loaded then return end
+    local matches = ns.Export.OnDataLoaded(kind, id, success)
+    if #matches==0 then return end   -- slot was reassigned meanwhile: nothing to update
+    ns.Safe("panel", ns.Panel.RefreshSlots, matches)
+    if kind=="spell" then ns.Safe("secure", ns.Secure.Request) end  -- name now known for the attribute
+    ns.Export.MarkDirty()
+end
+function handlers.SPELL_DATA_LOAD_RESULT(_, id, success) dataLoaded("spell", id, success) end
+function handlers.ITEM_DATA_LOAD_RESULT(_, id, success) dataLoaded("item", id, success) end
+function handlers.BAG_UPDATE_COOLDOWN()
+    if not loaded then return end
+    ns.Safe("cooldowns", ns.Export.ObserveItems)
+    ns.Safe("panel cooldowns", ns.Panel.RefreshCooldowns)
+    ns.Export.MarkDirty()
+end
+function handlers.BAG_UPDATE_DELAYED()
+    if not loaded then return end
+    ns.Safe("panel", ns.Panel.Refresh)
+    ns.Safe("cooldowns", ns.Export.ObserveItems)
+    ns.Export.MarkDirty()
+end
+function handlers.PLAYER_MONEY()
+    if loaded then ns.Export.MarkDirty() end
+end
+function handlers.PLAYER_LOGOUT()
+    if loaded then ns.Safe("export", ns.Export.Refresh) end
+end
+
+local function show(label, value) say(label .. ": " .. (type(value)=="function" and "available" or "unavailable")) end
+local function plainText(value)
+    if ns.Export.issecret(value) then return "sealed" end
+    if value==nil then return "nil" end
+    return tostring(value)
 end
 local function probe()
-    -- Availability only. No binding installation, cooldown calls, secret reads or API guesses.
-    local function available(label,value)
-        say(label .. ": " .. (type(value)=="function" and "available" or "unavailable"))
+    -- Presence and states only. Never prints sealed values; never calls uncertain APIs blindly.
+    local function lib(name) local t=_G[name]; return type(t)=="table" and t or {} end
+    local spells, items, book, container, timer = lib("C_Spell"), lib("C_Item"), lib("C_SpellBook"), lib("C_Container"), lib("C_Timer")
+    show("SetOverrideBindingClick",SetOverrideBindingClick)
+    show("ClearOverrideBindings",ClearOverrideBindings)
+    show("GetBindingAction",GetBindingAction)
+    show("issecretvalue",issecretvalue)
+    show("GetCursorInfo",GetCursorInfo)
+    show("C_Spell.GetSpellInfo",spells.GetSpellInfo)
+    show("C_Spell.GetSpellTexture",spells.GetSpellTexture)
+    show("C_Spell.RequestLoadSpellData",spells.RequestLoadSpellData)
+    show("C_Spell.GetSpellBaseCooldown",spells.GetSpellBaseCooldown)
+    show("GetSpellBaseCooldown (global)",GetSpellBaseCooldown)
+    show("C_SpellBook.FindSpellBookSlotForSpell",book.FindSpellBookSlotForSpell)
+    show("C_SpellBook.IsSpellBookItemLowRank",book.IsSpellBookItemLowRank)
+    show("C_SpellBook.GetSpellBookItemType",book.GetSpellBookItemType)
+    show("C_Item.GetItemInfo",items.GetItemInfo)
+    show("C_Item.GetItemIconByID",items.GetItemIconByID)
+    show("C_Item.GetItemNameByID",items.GetItemNameByID)
+    show("C_Item.RequestLoadItemDataByID",items.RequestLoadItemDataByID)
+    show("C_Item.GetItemCount",items.GetItemCount)
+    show("C_Item.GetItemCooldown",items.GetItemCooldown)
+    show("C_Item.GetItemSpell",items.GetItemSpell)
+    show("C_Container.GetContainerNumFreeSlots",container.GetContainerNumFreeSlots)
+    show("C_Timer.NewTimer",timer.NewTimer)
+    show("GetServerTime",GetServerTime); show("GetTime",GetTime); show("GetMoney",GetMoney)
+    show("GetCVarBool",GetCVarBool)
+    if type(GetCVarBool)=="function" then
+        local ok, value = pcall(GetCVarBool, "ActionButtonUseKeyDown")
+        say("ActionButtonUseKeyDown: " .. (ok and plainText(value) or "unreadable"))
     end
-    local spells=type(C_Spell)=="table" and C_Spell or {}
-    local items=type(C_Item)=="table" and C_Item or {}
-    available("SetOverrideBindingClick",SetOverrideBindingClick)
-    available("GetBindingAction",GetBindingAction)
-    available("issecretvalue",issecretvalue)
-    available("C_Spell.GetSpellInfo",spells.GetSpellInfo)
-    available("C_Spell.RequestLoadSpellData",spells.RequestLoadSpellData)
-    available("C_Item.GetItemInfo",items.GetItemInfo)
-    available("C_Item.RequestLoadItemDataByID",items.RequestLoadItemDataByID)
-    available("C_Item.GetItemCooldown",items.GetItemCooldown)
-    available("GetServerTime",GetServerTime)
-    available("GetTime",GetTime)
-    available("GetCVarBool",GetCVarBool)
-    say("Presence does not verify signatures, readable values, or override behavior; part 2 needs live tests.")
+    say("WOW_PROJECT_ID: " .. plainText(WOW_PROJECT_ID))
+    if type(GetBuildInfo)=="function" then
+        local ok, version, build, _, interface = pcall(GetBuildInfo)
+        if ok then say("build: " .. plainText(version) .. "." .. plainText(build) .. " interface " .. plainText(interface)) end
+    end
+    local s = ns.Secure.status
+    say("secure buttons: " .. (s.ready and "created" or ("not created" .. (ns.Secure.IsQueued() and " (queued for after combat)" or "")))
+        .. "; template " .. plainText(s.template) .. "; click on key " .. (s.keyDown==nil and "?" or (s.keyDown and "down" or "up")))
+    say("overrides: " .. s.bindings .. " (" .. s.applied .. "/15); effective lookup verified "
+        .. (s.verified==nil and "not checkable" or (s.verified .. "/15")))
+    local st, db = ns.Export.stats, StreonorDockDB or {}
+    local probeDb = type(db.probe)=="table" and db.probe or {}
+    say("item cooldown reads this session: " .. st.reads .. " (readable " .. st.readable .. ", sealed " .. st.sealed
+        .. ", unavailable " .. st.unavailable .. "); press estimates started " .. st.estimates)
+    say("readable in combat: " .. (probeDb.combatReadable==nil and "not yet observed" or tostring(probeDb.combatReadable))
+        .. "; estimates " .. tostring(type(db.settings)=="table" and db.settings.estimates or "auto")
+        .. " -> " .. (ns.Export.EstimatesEnabled() and "on" or "off"))
+    local groupCount, itemCount = 0, 0
+    for _ in pairs(ns.cooldowns and ns.cooldowns.groups or {}) do groupCount=groupCount+1 end
+    for _ in pairs(ns.cooldowns and ns.cooldowns.itemGroups or {}) do itemCount=itemCount+1 end
+    say("cooldown reference data: " .. groupCount .. " group(s), " .. itemCount .. " item(s) (unverified unless marked)")
+    for _, m in ipairs(ns.cooldowns and ns.cooldowns.mismatches or {}) do
+        say("table mismatch: item " .. m.itemID .. " group " .. m.group .. " table " .. m.table .. "s, game " .. m.game .. "s")
+    end
+    if #unavailableEvents>0 then say("events not registered: " .. table.concat(unavailableEvents, ", ")) end
+    say("Presence does not verify behavior; follow the in-game checklist in README.md.")
+end
+local function describe(value)
+    if not value or value.kind=="empty" then return "empty" end
+    local name
+    if value.kind=="spell" then name = ns.Export.SpellMeta(value.id) else name = ns.Export.ItemMeta(value.id) end
+    return value.kind .. " " .. value.id .. (value.pinned and " (rank pinned)" or "") .. (name and (" " .. name) or "")
+end
+local function chords()
+    local page = ns.state.pages[ns.state.currentPage]
+    local status = ns.Secure.status
+    say("page " .. ns.state.currentPage .. "; overrides " .. status.bindings .. " (" .. status.applied .. "/15)")
+    if type(GetBindingAction)~="function" then
+        for i=1,15 do say(i .. " " .. ns.Core.chord(i) .. " -> " .. describe(page.slots[i])) end
+        say("GetBindingAction unavailable: conflicts cannot be checked.")
+        return
+    end
+    local rows, conflicts = ns.Secure.Conflicts()
+    for i, row in ipairs(rows) do
+        local effective = not row.effectiveKnown and "?" or (row.ours and "ours" or (row.effective or "none"))
+        say(i .. " " .. row.chord .. " -> " .. describe(page.slots[i]) .. " | ordinary: " .. (row.ordinary or "none")
+            .. " | effective: " .. effective .. (row.conflict and "  CONFLICT" or ""))
+    end
+    say(conflicts .. " conflict(s). 'effective' uses GetBindingAction(key, true); if it never says 'ours' after login, that lookup is unsupported or overrides failed.")
+end
+local function estimates(arg)
+    if arg=="on" or arg=="off" or arg=="auto" then StreonorDockDB.settings.estimates=arg end
+    say("press estimates: " .. StreonorDockDB.settings.estimates .. " -> " .. (ns.Export.EstimatesEnabled() and "on" or "off")
+        .. " (usage: /sdock estimates on|off|auto)")
 end
 local function help()
-    say("/sdock help | probe | chords | export. Pager keys: Game Key Bindings > StreonorDock.")
-    say("Part 1: editor, secure actions and snapshot wiring are pending part 2.")
+    say("/sdock toggle | page next|prev|home | chords | probe | export | estimates on|off|auto | help")
+    say("Drag a spell or bag item onto a key (readouts: items only); right-click clears. Out of combat only.")
+    say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
 SLASH_STREONORDOCK1="/sdock"
 SlashCmdList.STREONORDOCK=function(message)
-    local command=string.lower(string.match(message or "","^%s*(%S+)") or "help")
-    if command=="probe" then probe()
-    elseif command=="chords" then
-        for i=1,15 do say(i .. ": " .. ns.Core.chord(i)) end
-        say("Conflict audit and effective overrides: TODO(part 2); no overrides installed.")
+    local command, arg = string.match(string.lower(message or ""),"^%s*(%S*)%s*(%S*)")
+    if not loaded and command~="probe" and command~="help" and command~="" then say("not loaded yet"); return end
+    if command=="probe" then ns.Safe("probe", probe)
+    elseif command=="toggle" then ns.Safe("toggle", ns.Panel.Toggle)
+    elseif command=="page" then
+        if arg=="next" or arg=="prev" or arg=="home" then StreonorDock_Page(arg) else say("usage: /sdock page next|prev|home") end
+    elseif command=="chords" then ns.Safe("chords", chords)
+    elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
     elseif command=="export" then
-        say("Snapshot wiring: TODO(part 2). Once wired, disk saves require /reload or logout.")
+        ns.Safe("export", ns.Export.Refresh)
+        say("snapshot updated in memory; /reload or log out to write it to disk (saved snapshot).")
     else help() end
 end
 BINDING_HEADER_STREONORDOCK="StreonorDock"
@@ -82,8 +279,12 @@ BINDING_NAME_STREONORDOCK_NEXT="Next page (out of combat)"
 BINDING_NAME_STREONORDOCK_PREV="Previous page (out of combat)"
 BINDING_NAME_STREONORDOCK_HOME="Home page (out of combat)"
 local frame=CreateFrame("Frame")
-for event in pairs(handlers) do frame:RegisterEvent(event) end
+for event in pairs(handlers) do
+    -- An event unknown to this client would throw; record it for /sdock probe instead.
+    if not pcall(frame.RegisterEvent, frame, event) then unavailableEvents[#unavailableEvents+1]=event end
+end
+table.sort(unavailableEvents)
 frame:SetScript("OnEvent",function(self,event,...)
     local handler=handlers[event]
-    if handler then handler(self,...) end
+    if handler then ns.Safe(event, handler, self, ...) end
 end)

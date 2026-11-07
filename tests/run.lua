@@ -8,6 +8,7 @@ local function load(path)
 end
 ns.load = load
 load("tests/Assert.lua")
+load("tests/Host.lua")
 load("tests/core_spec.lua")
 load("tests/cooldown_spec.lua")
 load("tests/init_spec.lua")
