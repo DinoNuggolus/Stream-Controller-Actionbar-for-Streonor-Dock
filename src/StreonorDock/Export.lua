@@ -178,19 +178,30 @@ local function noteCombatReading(kind)
     elseif kind=="sealed" and StreonorDockDB.probe.combatReadable==nil then StreonorDockDB.probe.combatReadable=false end
 end
 
--- PostClick of OUR secure key button holding this item (runs in combat too). Starts the item's
--- press timer if enabled, the bag count is plain and > 0, and no timer is running.
+-- PostClick of OUR secure key button holding this item (runs in combat too). Always records the
+-- press time (own-use learning); starts the press timer only if estimates are enabled, the bag
+-- count is plain and > 0, the item is not dormant and no timer for its key is running.
 function Export.OnKeyPress(itemID)
     itemID = positiveInteger(itemID)
     local now, tracker = Export.Now(), ns.cooldowns
-    if not itemID or not now or not tracker or not Export.EstimatesEnabled() then return false end
-    local started = tracker:press(itemID, now, Export.ItemCount(itemID), Export.BaseCooldown(itemID))
+    if not itemID or not now or not tracker then return false end
+    local started = tracker:press(itemID, now, Export.ItemCount(itemID), Export.BaseCooldown(itemID),
+        Export.EstimatesEnabled())
     if started then Export.stats.estimates=Export.stats.estimates+1 end
     return started
 end
 
--- Reconcile with the game: every item on the current page plus every item with a live timer
--- (any page). Readable data overrides estimates; sealed/unavailable readings change nothing.
+-- Client build string for the learning store ("<version>.<build>"), or nil if unreadable.
+function Export.Build()
+    if type(GetBuildInfo)~="function" then return nil end
+    local ok, version, build = pcall(GetBuildInfo)
+    if ok and type(plain(version))=="string" and type(plain(build))=="string" then return version .. "." .. build end
+end
+
+-- Reconcile with the game: every item on the current page, every item with a live timer (any
+-- page) and the HELD members of those timers' pools (sharing evidence). Readable data overrides
+-- estimates; sealed/unavailable readings change nothing. Items not in the bags are never read
+-- for evidence (an absent item reads as ready and would fake "not shared").
 function Export.ObserveItems()
     local tracker, now = ns.cooldowns, Export.Now()
     if not tracker or not now or not ns.state then return end
@@ -207,7 +218,14 @@ function Export.ObserveItems()
         end
     end
     for _, itemID in ipairs(ns.Core.pageItems(ns.state)) do observe(itemID) end
-    for _, itemID in ipairs(tracker:activeItems(now)) do observe(itemID) end
+    local active = tracker:activeItems(now)
+    for _, itemID in ipairs(active) do observe(itemID) end
+    for _, itemID in ipairs(active) do
+        for _, member in ipairs(tracker:poolMembers(itemID)) do
+            local count = Export.ItemCount(member)
+            if count and count>0 then observe(member) end
+        end
+    end
 end
 
 -- Free slots in general-purpose bags (bag family 0). nil if any reading is not plain.

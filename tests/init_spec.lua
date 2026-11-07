@@ -25,12 +25,12 @@ A.test("load defers SavedVariables and owns exactly one event frame",function()
 end)
 A.test("malformed saves and settings are repaired on ADDON_LOADED",function()
     local h=host({saved={pages=false,profileId="existing",revision="bad"},
-        db={settings={estimates=7},probe={combatReadable="yes"},cooldownLengths={[8]=-1,[9]=30},ui={point="NOWHERE"}}})
+        db={settings={estimates=7},probe={combatReadable="yes"},cooldownLearned={items={[8]={duration=-1},[9]={duration=30}}},ui={point="NOWHERE"}}})
     h.event("ADDON_LOADED",addonName)
     A.equal(h.env.StreonorDockCharDB.profileId,"existing"); A.equal(h.env.StreonorDockCharDB.revision,0)
     local db=h.env.StreonorDockDB
     A.equal(db.settings.estimates,"auto"); A.equal(db.probe.combatReadable,nil)
-    A.deep(db.cooldownLengths,{[9]=30})
+    A.deep(db.cooldownLearned.items,{[9]={duration=30}})
     local panel=h.named("StreonorDockPanel")
     A.deep(panel.points[1],{"CENTER",h.env.UIParent,"CENTER",0,0})
 end)
@@ -205,7 +205,7 @@ A.test("export is sanitized, character-free and drops unavailable fields",functi
     A.deep(h.env.StreonorDockDB.export.readouts[1],{kind="empty"})
 end)
 A.test("key press starts one item timer shared across pages and slots",function()
-    local h=host({db={cooldownLengths={[8]=60}}})
+    local h=host({db={cooldownLearned={items={[8]={duration=60}}}}})
     h.items[8]={name="Potion",icon=500,count=2}
     h.login()
     h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("readouts",2,{kind="item",itemID=8})
@@ -225,7 +225,7 @@ A.test("key press starts one item timer shared across pages and slots",function(
     -- Readable data reconciles and overrides the estimate.
     h.items[8].cd={101,120,true}; h.time=115; h.event("PLAYER_REGEN_ENABLED")
     local seconds, source=h.ns.cooldowns:remaining(8,115)
-    A.equal(seconds,106); A.equal(source,"game"); A.equal(h.env.StreonorDockDB.cooldownLengths[8],120)
+    A.equal(seconds,106); A.equal(source,"game"); A.equal(h.env.StreonorDockDB.cooldownLearned.items[8].duration,60,"start is not our last press: no learning")
     A.equal(h.editor("slots",9).label.text,"")
 end)
 A.test("press guards: count, non-item slots, and estimates setting",function()
@@ -251,7 +251,7 @@ A.test("press guards: count, non-item slots, and estimates setting",function()
     A.equal(h.ns.cooldowns:running(8,103),true)
 end)
 A.test("one timer only while a countdown is active",function()
-    local h=host({db={cooldownLengths={[8]=30}}})
+    local h=host({db={cooldownLearned={items={[8]={duration=30}}}}})
     h.items[8]={name="Potion",icon=500,count=1}
     h.login(); h.timers={}
     h.ns.Edit("readouts",1,{kind="item",itemID=8})
@@ -292,4 +292,61 @@ A.test("slash commands, probe presence only, unknown events and fail-soft handle
     local reports=0
     for _, m in ipairs(h.messages) do if string.find(m,"internal error",1,true) then reports=reports+1 end end
     A.equal(reports<=1,true)
+end)
+A.test("no addon Lua file starts with a BOM and every TOC file exists",function()
+    local toc=io.open("src/StreonorDock/StreonorDock.toc","rb"); local text=toc:read("*a"); toc:close()
+    local files=0
+    for line in string.gmatch(text,"[^\r\n]+") do
+        if string.match(line,"%.lua$") then
+            files=files+1
+            local f=io.open("src/StreonorDock/" .. line,"rb"); A.equal(f~=nil,true,line .. " exists")
+            local head=f:read(25); f:close()
+            A.equal(string.sub(head,1,3)~="\239\187\191",true,line .. " has no BOM")
+            A.equal(head,"local addonName, ns = ...",line .. " namespace first line")
+        end
+    end
+    A.equal(files,7)
+end)
+A.test("degrades gracefully: empty bags, no spells, no cooldown items",function()
+    local h=host()
+    h.env.C_Item.GetItemCount=function() return 0 end
+    h.env.C_Item.GetItemIconByID=function() return nil end
+    h.env.C_Spell.GetSpellInfo=function() return nil end
+    h.env.C_Container.GetContainerNumFreeSlots=function() return 0, 0 end
+    h.login(); h.event("PLAYER_ENTERING_WORLD",true,false)
+    for _, e in ipairs({"BAG_UPDATE_COOLDOWN","BAG_UPDATE_DELAYED","PLAYER_MONEY","SPELLS_CHANGED",
+        "PLAYER_REGEN_ENABLED","ITEM_DATA_LOAD_RESULT","SPELL_DATA_LOAD_RESULT"}) do h.event(e) end
+    for i=1,15 do h.button(i).scripts.PostClick(h.button(i),"LeftButton",true) end
+    for _, cmd in ipairs({"probe","chords","cooldowns","export","toggle","toggle","page home","page prev",
+        "estimates","help",""}) do h.slash(cmd) end
+    local key=h.editor("slots",1)
+    key.scripts.OnClick(key,"LeftButton"); key.scripts.OnClick(key,"RightButton"); key.scripts.OnEnter(key)
+    key.scripts.OnReceiveDrag(key)
+    h.runTimers(); h.event("PLAYER_LOGOUT")
+    A.equal(h.said("internal error"),false)
+    A.equal(h.said("nothing learned yet"),true)
+    A.equal(h.said("cooldown table: 0 group(s)"),true)
+    local e=h.env.StreonorDockDB.export
+    for i=1,15 do A.deep(e.slots[i],{kind="empty"}) end
+    A.deep(e.player,{moneyCopper=5000,freeBagSlots=0})
+    A.deep(h.ns.cooldowns:activeItems(h.time),{})
+end)
+A.test("probe lists held table groups and cooldowns prints learned own-use data",function()
+    local h=host()
+    h.items[118]={name="Minor Healing Potion",icon=1,count=2}
+    h.items[2455]={name="Minor Mana Potion",icon=2,count=1}
+    h.login()
+    h.slash("probe")
+    A.equal(h.said("health_potion [pool potion]: table 120s, observed -; items 118x2"),true)
+    A.equal(h.said("mana_potion [pool potion]: table 120s, observed -; items 2455x1"),true)
+    h.ns.Edit("slots",1,{kind="item",id=118})
+    h.button(1).scripts.PostClick(h.button(1),"LeftButton",true)       -- press at t=100
+    h.items[118].cd={100.2,120,true}; h.items[2455].cd={100.2,120,true}
+    h.time=100.5; h.event("BAG_UPDATE_COOLDOWN")
+    h.messages={}; h.slash("cooldowns")
+    A.equal(h.said("group health_potion = 120s verified; items seen 118"),true)
+    A.equal(h.said("pool potion: shared lock seen"),true)
+    h.messages={}; h.slash("probe")
+    A.equal(h.said("health_potion [pool potion]: table 120s, observed 120s (verified this build); pool sharing seen"),true)
+    A.equal(h.editor("slots",1).label.text,"")
 end)

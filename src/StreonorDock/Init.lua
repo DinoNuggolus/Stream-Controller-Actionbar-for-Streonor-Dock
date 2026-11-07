@@ -71,7 +71,7 @@ local function sanitizeSettings(db)
     if e~="on" and e~="off" then db.settings.estimates="auto" end
     if type(db.probe)~="table" then db.probe={} end
     if type(db.probe.combatReadable)~="boolean" then db.probe.combatReadable=nil end
-    if type(db.cooldownLengths)~="table" then db.cooldownLengths={} end
+    if type(db.cooldownLearned)~="table" then db.cooldownLearned={} end
     if type(db.ui)~="table" then db.ui={} end
 end
 
@@ -86,8 +86,9 @@ function handlers.ADDON_LOADED(_, name)
         profileId=saved.profileId
     else profileId=newProfileId() end
     ns.SetState(ns.Core.recover(saved,profileId))
-    -- Learned item cooldown lengths persist account-wide per itemID.
-    ns.cooldowns=ns.CooldownTracker.new(StreonorDockDB.cooldownLengths, ns.CooldownGroups, ns.ItemGroups)
+    -- Self-verifying cooldown table: learning persists account-wide in StreonorDockDB.cooldownLearned.
+    ns.cooldowns=ns.CooldownTracker.new(StreonorDockDB.cooldownLearned, ns.CooldownGroups, ns.ItemGroups,
+        {build=ns.Export.Build(), wallClock=ns.Export.ServerNow, issecret=ns.Export.issecret})
     loaded=true
     ns.Safe("panel create", ns.Panel.Create)
     -- Secure buttons/bindings: now if possible, else queued for PLAYER_REGEN_ENABLED.
@@ -216,15 +217,56 @@ local function probe()
     say("readable in combat: " .. (probeDb.combatReadable==nil and "not yet observed" or tostring(probeDb.combatReadable))
         .. "; estimates " .. tostring(type(db.settings)=="table" and db.settings.estimates or "auto")
         .. " -> " .. (ns.Export.EstimatesEnabled() and "on" or "off"))
-    local groupCount, itemCount = 0, 0
-    for _ in pairs(ns.cooldowns and ns.cooldowns.groups or {}) do groupCount=groupCount+1 end
-    for _ in pairs(ns.cooldowns and ns.cooldowns.itemGroups or {}) do itemCount=itemCount+1 end
-    say("cooldown reference data: " .. groupCount .. " group(s), " .. itemCount .. " item(s) (unverified unless marked)")
-    for _, m in ipairs(ns.cooldowns and ns.cooldowns.mismatches or {}) do
-        say("table mismatch: item " .. m.itemID .. " group " .. m.group .. " table " .. m.table .. "s, game " .. m.game .. "s")
+    if ns.cooldowns then
+        local rows = ns.cooldowns:groupReport(ns.Export.ItemCount)
+        say("cooldown table: " .. #rows .. " group(s) with an item in your bags (table vs observed):")
+        for _, row in ipairs(rows) do say("  " .. ns.FormatGroupRow(row)) end
     end
     if #unavailableEvents>0 then say("events not registered: " .. table.concat(unavailableEvents, ", ")) end
     say("Presence does not verify behavior; follow the in-game checklist in README.md.")
+end
+local function seconds(v) if type(v)=="number" then return v .. "s" end; return "?" end
+function ns.FormatGroupRow(row)
+    local items = {}
+    for _, entry in ipairs(row.items) do
+        items[#items+1] = entry.itemID .. (entry.count and ("x" .. entry.count) or "")
+            .. (entry.override and (" own " .. seconds(entry.override)) or "")
+    end
+    local sharing = ""
+    if row.sharing then
+        sharing = row.sharing.sharedVerified and "; pool sharing seen" or (row.sharing.notShared and "; NOT shared evidence" or "")
+    end
+    return row.group .. (row.pool and (" [pool " .. row.pool .. "]") or "") .. ": table "
+        .. (row.table==0 and "none (0)" or seconds(row.table)) .. ", observed " .. (row.learned and seconds(row.learned) or "-")
+        .. (row.verified and " (verified this build)" or "") .. sharing .. "; items " .. table.concat(items, ", ")
+end
+-- Learned data for folding into the next CooldownData.lua (the addon never rewrites it).
+local function cooldowns()
+    local tracker = ns.cooldowns
+    local store = tracker.store
+    say("learned cooldowns (build " .. tostring(store.build) .. "); the shipped table is never rewritten:")
+    local any = false
+    for key, g in pairs(store.groups) do
+        any = true
+        say("  group " .. key .. " = " .. seconds(g.duration) .. (g.verified and " verified" or " unverified")
+            .. "; items seen " .. table.concat(g.itemsSeen, ", "))
+    end
+    for itemID, v in pairs(store.items) do
+        any = true
+        say("  item " .. itemID .. " = " .. seconds(v.duration) .. (v.verified and " verified" or " unverified")
+            .. (tracker:group(itemID) and (" (split from " .. tracker:group(itemID) .. ")") or " (not in table)"))
+    end
+    for label, p in pairs(store.pools) do
+        any = true
+        say("  pool " .. label .. ": " .. (p.sharedVerified and "shared lock seen" or (p.notShared and "member stayed ready (not shared?)" or "no evidence")))
+    end
+    if not any then say("  nothing learned yet: press a cooldown item on a dock key out of combat.") end
+    for _, e in ipairs(tracker.log) do
+        say("  log: " .. e.kind .. " item " .. tostring(e.itemID) .. (e.group and (" group " .. e.group) or "")
+            .. (e.pool and (" pool " .. e.pool) or "") .. (e.other and (" other " .. e.other) or "")
+            .. (e.game and (" game " .. seconds(e.game)) or "") .. (e.table and (" table " .. seconds(e.table)) or "")
+            .. (e.group_duration and (" group value " .. seconds(e.group_duration)) or ""))
+    end
 end
 local function describe(value)
     if not value or value.kind=="empty" then return "empty" end
@@ -255,7 +297,7 @@ local function estimates(arg)
         .. " (usage: /sdock estimates on|off|auto)")
 end
 local function help()
-    say("/sdock toggle | page next|prev|home | chords | probe | export | estimates on|off|auto | help")
+    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | help")
     say("Drag a spell or bag item onto a key (readouts: items only); right-click clears. Out of combat only.")
     say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
@@ -269,6 +311,7 @@ SlashCmdList.STREONORDOCK=function(message)
         if arg=="next" or arg=="prev" or arg=="home" then StreonorDock_Page(arg) else say("usage: /sdock page next|prev|home") end
     elseif command=="chords" then ns.Safe("chords", chords)
     elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
+    elseif command=="cooldowns" then ns.Safe("cooldowns", cooldowns)
     elseif command=="export" then
         ns.Safe("export", ns.Export.Refresh)
         say("snapshot updated in memory; /reload or log out to write it to disk (saved snapshot).")
