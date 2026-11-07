@@ -1,0 +1,9 @@
+﻿## Interface: 16001
+## Title: StreonorDock
+## Notes: Short description
+## Author: DinoNuggolus
+## Version: 0.1.0
+## SavedVariables: StreonorDockDB
+
+StreonorDock.lua
+
