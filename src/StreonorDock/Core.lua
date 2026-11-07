@@ -14,6 +14,8 @@ local function slot(value, readout)
         local field = readout and "itemID" or "id"
         if id(value[field]) then return {kind="item", [field]=value[field]} end
     elseif not readout and value.kind=="spell" and id(value.id) then
+        -- pinned=true: cast this exact rank by ID; otherwise cast by name (highest known rank).
+        if value.pinned==true then return {kind="spell",id=value.id,pinned=true} end
         return {kind="spell",id=value.id}
     end
 end
@@ -72,6 +74,123 @@ function Core.page(state, action, inCombat)
     result.revision=result.revision+1
     return result,true
 end
+local function never() return false end
+-- Last resort before Core: deep copy keeping only plain strings, booleans, finite numbers and
+-- tables with plain string/number keys. The predicate runs before any other use of a value.
+function Core.sanitize(value, issecret, depth)
+    issecret = issecret or never
+    depth = depth or 0
+    if issecret(value) then return nil end
+    local kind = type(value)
+    if kind=="string" or kind=="boolean" then return value end
+    if kind=="number" then if number(value) then return value end; return nil end
+    if kind~="table" or depth>=6 then return nil end
+    local out = {}
+    for k, v in pairs(value) do
+        if not issecret(k) and (type(k)=="string" or number(k)) then
+            local clean = Core.sanitize(v, issecret, depth+1)
+            if clean~=nil then out[k]=clean end
+        end
+    end
+    return out
+end
+-- cursor = packed GetCursorInfo() returns {kind, detail, subdetail, spellID, resolved=?}.
+-- Returns {kind="spell"|"item", id} or nil, reason. Never inspects a value before issecret.
+function Core.normalizeCursor(cursor, issecret)
+    issecret = issecret or never
+    if type(cursor)~="table" then return nil,"empty" end
+    local function plain(v) if not issecret(v) then return v end end
+    local kind = plain(cursor[1])
+    if kind==nil then return nil,"empty" end
+    if kind=="item" then
+        local itemID = plain(cursor[2])
+        if id(itemID) then return {kind="item",id=itemID} end
+        local link = plain(cursor[3])
+        if type(link)=="string" then
+            local parsed = tonumber(string.match(link,"item:(%d+)") or "")
+            if id(parsed) then return {kind="item",id=parsed} end
+        end
+        return nil,"item-id"
+    elseif kind=="spell" then
+        local spellID = plain(cursor[4])
+        if id(spellID) then return {kind="spell",id=spellID} end
+        local resolved = plain(cursor.resolved)
+        if id(resolved) then return {kind="spell",id=resolved} end
+        return nil,"spell-id"
+    end
+    return nil,"unsupported"
+end
+-- Converts a normalized key value to the shape an area accepts (readouts: items only).
+function Core.forArea(value, area)
+    if type(value)~="table" then return nil,"slot" end
+    if area=="readouts" then
+        if value.kind=="item" and id(value.id) then return {kind="item",itemID=value.id} end
+        if value.kind=="empty" then return {kind="empty"} end
+        return nil,"items-only"
+    end
+    return value
+end
+function Core.identity(value)
+    if type(value)~="table" then return nil end
+    local itemID = value.id or value.itemID
+    if (value.kind=="spell" or value.kind=="item") and id(itemID) then return value.kind .. ":" .. itemID end
+end
+local function currentPage(state)
+    return type(state)=="table" and type(state.pages)=="table" and state.pages[state.currentPage] or nil
+end
+-- Slots on the CURRENT page whose identity is kind:id now. Late metadata callbacks refresh only these.
+function Core.findSlots(state, kind, itemID)
+    local found, page, wanted = {}, currentPage(state), Core.identity({kind=kind,id=itemID})
+    if not page or not wanted then return found end
+    for _, area in ipairs({"slots","readouts"}) do
+        for i, value in ipairs(page[area] or {}) do
+            if Core.identity(value)==wanted then found[#found+1]={area=area,index=i} end
+        end
+    end
+    return found
+end
+-- True if any page (slots or readouts) still holds this item.
+function Core.itemReferenced(state, itemID)
+    if type(state)~="table" or type(state.pages)~="table" then return false end
+    local wanted = Core.identity({kind="item",id=itemID})
+    for _, page in ipairs(state.pages) do
+        for _, area in ipairs({"slots","readouts"}) do
+            for _, value in ipairs(page[area] or {}) do
+                if Core.identity(value)==wanted then return true end
+            end
+        end
+    end
+    return false
+end
+-- Unique ascending item IDs on the current page (keys and readouts).
+function Core.pageItems(state)
+    local page, seen, list = currentPage(state), {}, {}
+    if not page then return list end
+    for _, area in ipairs({"slots","readouts"}) do
+        for _, value in ipairs(page[area] or {}) do
+            local itemID = value.kind=="item" and (value.id or value.itemID)
+            if id(itemID) and not seen[itemID] then seen[itemID]=true; list[#list+1]=itemID end
+        end
+    end
+    table.sort(list)
+    return list
+end
+-- Secure attribute plan for one key slot. false = clear the attribute (never leave stale ones).
+-- spellName must already be a plain, non-secret string or nil.
+function Core.secureAttributes(value, spellName)
+    if type(value)=="table" and value.kind=="spell" and id(value.id) then
+        local spell = value.id
+        if not value.pinned and type(spellName)=="string" and spellName~="" then spell=spellName end
+        return {type="spell",spell=spell,item=false}
+    elseif type(value)=="table" and value.kind=="item" and id(value.id) then
+        return {type="item",spell=false,item="item:" .. value.id}
+    end
+    return {type=false,spell=false,item=false}
+end
+function Core.chordKey(index)
+    local chord = Core.chord(index)
+    return chord and string.match(chord,"^ALT%-CTRL%-SHIFT%-(.+)$")
+end
 function Core.buildExport(state, now, issecret, providers)
     -- Rebuild from allowlisted fields every time; never merge a previous snapshot.
     issecret = issecret or function() return false end
@@ -100,11 +219,19 @@ function Core.buildExport(state, now, issecret, providers)
                     if source=="game" or source=="est" then
                         out.source=source
                         if number(endsAt) and endsAt>=0 then out.endsAt=endsAt end
+                    elseif source=="used" then
+                        out.source=source  -- pressed, length unknown: no countdown claimed
                     end
                 end
             end
             result[area][i]=out
         end
     end
+    -- Optional ordinary player values (copper and free general bag slots); omitted when unknown.
+    local player, values = record(providers.player), nil
+    local money, free = plain(player.moneyCopper), plain(player.freeBagSlots)
+    if integer(money) and money>=0 then values = {moneyCopper=money} end
+    if integer(free) and free>=0 then values = values or {}; values.freeBagSlots=free end
+    result.player = values
     return result
 end
