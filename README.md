@@ -1,115 +1,164 @@
 # StreonorDock
 
-Original WoW: Forever addon by DinoNuggolus, MIT licensed. **Part 1 only**: tested pure
-layout/export/cooldown logic and thin WoW adapter skeletons. No editor, actionable
-buttons, override bindings or persisted export wiring yet. Nothing is deployed.
+Original WoW: Forever addon by DinoNuggolus, MIT licensed. Gives a character 15 controller keys
+(fixed `ALT-CTRL-SHIFT-` chords) and 3 item readouts per page, up to 10 manual pages, and
+writes a sanitized **saved snapshot** for a future Streonor S15 companion plugin.
 
-The planned controller has 15 fixed keys and 3 item readouts per character page.
-Manual next/previous/home paging works out of combat, up to 10 pages. New pages
-start empty; returning to a page restores its contents. The three readouts start
-empty. Slot N uses `ALT-CTRL-SHIFT-` plus `1 2 3 4 5 6 7 8 9 0 - = [ ] \`.
+**Status (part 2): built and unit-tested on the host only. Nothing has run in the game yet.**
+All in-game behavior (secure clicks, override bindings, secret values, cooldown readability,
+drag payloads) is unverified until the staged checklist below is done. Nothing is deployed.
 
-## Verification
+Chords: slot N = `ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \` (N = 1..15, row-major,
+3 columns x 5 rows = device keys). Pager keys (next/previous/home) are set by you in
+Game Menu > Key Bindings > StreonorDock.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `/sdock` or `/sdock help` | Help |
+| `/sdock toggle` | Show/hide the editor (allowed in combat; editing is not) |
+| `/sdock page next\|prev\|home` | Paging (out of combat only; page 10 is the limit) |
+| `/sdock chords` | Each chord, its slot, ordinary binding, effective mapping, conflicts |
+| `/sdock probe` | Capability presence, build, CVar, secure/override state, cooldown readability stats, table groups you hold (table vs observed) |
+| `/sdock cooldowns` | Learned cooldown data, pool sharing evidence, mismatch/conflict log |
+| `/sdock estimates on\|off\|auto` | Press-started timer estimates (auto = off once a readable item cooldown is seen in combat) |
+| `/sdock export` | Rebuild the snapshot now; it reaches disk only at `/reload` or logout |
+
+Editor: drag a spell (spellbook) or bag item onto a key; readouts take bag items only. Right-click
+clears (editor widgets are plain buttons and never cast). Edits and paging are rejected in combat
+with a chat message, never queued.
+
+## File map
+
+| File | Role | WoW calls |
+|---|---|---|
+| `StreonorDock.toc` | Interface 16001, load order, SavedVariables | - |
+| `Bindings.xml` | Next/previous/home key bindings under the StreonorDock header | - |
+| `Core.lua` | Pure layout model, pages, export builder, cursor normalization, slot identity, secure attribute plans, sanitizer | none |
+| `CooldownData.lua` | Shipped cooldown reference table (research seed, all `verified=false`) | none |
+| `Cooldown.lua` | Pure item timer model: pool/group/item keys, press timers, own-use learning, sharing evidence | none |
+| `Panel.lua` | Editor frame (BackdropTemplate), 15 key + 3 readout widgets, pager buttons, cooldown widgets | UI only |
+| `Secure.lua` | 15 `SecureActionButtonTemplate` buttons `StreonorDockSlot1..15`, click direction, attributes, override bindings, conflict report | protected, out of combat only |
+| `Export.lua` | Every game read (guarded by `issecretvalue`), cooldown reconciliation, snapshot write | reads |
+| `Init.lua` | One event frame + handler table, SavedVariables init, edit/page entry points, `/sdock` | events |
+
+Tests: `tests/run.lua` (Assert, Host fake client, core/cooldown/adapter specs).
+
+## Data contracts
+
+SavedVariables:
+- `StreonorDockCharDB` (per character): `{profileId, revision, currentPage, pages[1..10]}`;
+  each page `slots[1..15]`, `readouts[1..3]`. Spell slots may carry `pinned=true` (low rank
+  dragged: cast by spell ID; otherwise cast by name, which casts the highest known rank).
+- `StreonorDockDB` (account): `export`, `ui` (panel position/shown), `settings.estimates`,
+  `probe.combatReadable`, `cooldownLearned = {build, items, groups, pools}`.
+
+Snapshot `StreonorDockDB.export`, schema 1:
+`{schema=1, profileId, revision, savedAt, page={index,count}, slots[1..15], readouts[1..3], player?}`.
+Empty = `{kind="empty"}`. Keys add `id, chord`; readouts add `itemID`. Optional: `name`,
+`iconFileID`, items `count`, `source` (`game`/`est`/`used`) and `endsAt` (server seconds).
+`player = {moneyCopper, freeBagSlots}` when readable. No character/realm names, no spell
+cooldowns, no secret values; unavailable fields are omitted, never kept stale. Rebuilt on login,
+page change, edit, logout and (coalesced, 1 s) bag/money/cooldown events. **Consumers must label
+it "saved snapshot" and show its age**: disk writes happen only at `/reload`/logout.
+
+## Item cooldowns (Amendments 2 and 3)
+
+- Timers are absolute and keyed by **pool label** (`shared` in `CooldownData.lua`: every group
+  with the same label shares one timer), else by group key, else by item ID. Any slot on any page
+  showing a member shows the same timer; paging never resets it.
+- A key slot press (our secure button's `PostClick`, works in combat) starts a timer if: estimates
+  enabled, bag count is a plain number > 0, nothing running for that key, not dormant.
+- Duration precedence: live game data > item override > group learned/verified value > shipped
+  table value (`0` = no use cooldown, dormant; `nil` = unknown) > base-cooldown API (only if
+  present) > unknown, shown as `USED <elapsed>` instead of a made-up countdown.
+- Learning only from the item's **own** use: readable `C_Item.GetItemCooldown` whose start is within
+  1 s of our recorded press. Match (1 s) verifies the whole group for this build; mismatch stores a
+  group override; disagreement with an already verified group splits that item out (logged). A lock
+  imposed by another item never teaches. Another held pool member showing the same start (0.5 s)
+  records `sharedVerified`; a held member staying ready records "not shared" evidence.
+- Client build change keeps learned data but marks it unverified. The addon never rewrites
+  `CooldownData.lua`; fold `/sdock cooldowns` output into the next release by hand.
+- Out of scope for v1 (documented only): cross-lockouts outside this pool model, for example
+  Goblin Sapper Charge vs grenades/dynamite and Invisibility Potion vs ordinary potions.
+- Spell cooldowns are never read or shown (sealed on this client family).
+
+## Verification on the host
 
 From `G:\WoWFOREVER_ADDONS\StreonorDock` in PowerShell:
 
 ```powershell
 & 'C:\Program Files (x86)\Lua\5.1\lua.exe' tests\run.lua
-$files = @(rg --files -g '*.lua')
-foreach ($file in $files) {
-    & 'C:\Program Files (x86)\Lua\5.1\luac.exe' -p $file
-    if ($LASTEXITCODE -ne 0) { throw "Syntax failed: $file" }
+Get-ChildItem -Recurse -Filter *.lua | ForEach-Object {
+    & 'C:\Program Files (x86)\Lua\5.1\luac.exe' -p $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Syntax failed: $($_.FullName)" }
 }
 ```
 
-Tests have no external dependencies. Only the host test runner/specs use `loadfile`
-and `setfenv`; none are loaded by the addon. Every Lua file starts with the namespace
-declaration. See [NOTES.md](NOTES.md) for measured results and remaining verification.
-Fake-host tests verify adapter lifecycle, not actual client compatibility or secrecy.
+The fake host makes protected operations throw in combat, so tests prove the addon never attempts
+them during lockdown in the modelled paths. They do not prove the real client behaves like the fake.
 
-## Pure model contracts
+## In-game checklist (staged by what the character has)
 
-TOC-loaded modules publish `ns.Core` and `ns.CooldownTracker`; tests pass the same
-namespace to unchanged source chunks. No WoW globals are used by either module.
+Deploy only with `..\scripts\deploy.ps1 -Name StreonorDock` to
+`G:\World of Warcraft\_forever_\Interface\AddOns\StreonorDock\`; restart the client if the folder
+is new. Keep `/console scriptErrors 1` on. Record results in NOTES.md.
 
-- `Core.recover(saved, fallbackProfileId)` returns an independent normalized layout:
-  `{profileId, revision, currentPage, pages}`. Each page has `slots[1..15]` and
-  `readouts[1..3]`. Recovery copies allowlisted fields, repairs invalid slots,
-  fills sparse page holes and clamps page selection to valid bounds. At most ten
-  pages are recovered. Invalid ID = anything other than a finite positive integer.
-- `Core.assign(state, "slots"|"readouts", index, value, inCombat)` returns
-  `newState, true` or the original `state, false, reason`. Key slots accept
-  `{kind="spell"|"item", id=...}` or `{kind="empty"}`. Readouts accept only
-  `{kind="item", itemID=...}` or empty. Accepted edits copy input and increment revision.
-- `Core.page(state, "next"|"prev"|"home", inCombat)` follows the same result contract.
-  Previous/home at page 1 succeed without a revision change; next at page 10 rejects
-  with `limit`. All combat requests reject with `combat` and preserve exact state.
-- `Core.chord(index)` returns the fixed WoW string, or nil for invalid indices.
-- `Core.buildExport(state, now, issecret, providers)` builds a new allowlisted
-  snapshot, never merges an old one. `now` is injected server seconds (nonnegative
-  integer). Providers are ID-indexed tables `spells` and `items`, containing ordinary
-  `name`, `iconFileID`; items may also provide `count`, `endsAt`, `source`.
-  `issecret(value)` is checked before examining provider values. Missing/secret/
-  malformed values are omitted; no field retains a previous reading. The adapter
-  must sanitize live data *before* passing it here; the predicate adds defense.
+### Stage 0: fresh level-1 character (starter spells, starter food/water only)
+1. Log in: no Lua errors; `/sdock` prints help.
+2. `/sdock probe`: copy the output into NOTES.md (presence list, build/interface 16001,
+   `ActionButtonUseKeyDown`, `secure buttons: created`, `overrides: applied (15/15)`, effective lookup
+   `15/15` or "not checkable", events not registered, `cooldown table: 0 group(s)`).
+3. `/sdock toggle`: panel opens, drags, stays on screen, position survives `/reload`.
+4. Drag a starter spell onto key 1 and starter food onto key 2: icons appear (may be `?` briefly).
+   Drag a macro or money: rejected, cursor still held. Drag the spell onto a readout: "readouts accept
+   bag items only". Drag food onto readout 1: icon + count.
+5. Press `ALT-CTRL-SHIFT-1` and `-2` with the panel shown, then hidden: each press casts/uses once.
+   Switch Interface > Combat > "Cast action keybinds on key down" (ActionButtonUseKeyDown) and repeat:
+   still exactly one activation per press.
+6. `/sdock chords`: every effective mapping says `ours`; note any CONFLICT (BindPad, other addons).
+7. Paging: next creates empty page 2, home returns with key 1/2 intact, prev at page 1 stays,
+   next ten times stops at page 10 with "maximum of 10 pages reached". Bind the three pager keys in
+   Key Bindings > StreonorDock and repeat with the keys.
+8. Combat (hit a training dummy/mob): drag/right-click/pager -> "editing/paging unavailable in combat",
+   state unchanged; keys still fire; panel can still be toggled. After combat no errors.
+9. Right-click a filled key: slot clears and nothing is cast/used; the chord then does nothing.
+10. `/reload`, then read `WTF\...\SavedVariables\StreonorDock.lua` (read only): `export.schema=1`,
+    `profileId` random, no names, `slots[1]` spell with chord, page `{index,count}`, `savedAt`.
 
-Snapshot schema 1:
+### Stage 1: first potions or other cooldown items
+1. Put a potion on a key and the same potion on readout 1. Out of combat press the key: readout
+   shows the cooldown with no `est`; `/sdock cooldowns` shows the group verified or a mismatch.
+2. In combat press again after it is ready: `/sdock probe` "readable in combat" says true or false.
+   If true, estimates auto-turn off (expected); if false, the timer shows `est`, then corrects after
+   combat (PLAYER_REGEN_ENABLED).
+3. With two different potions held (e.g. health and mana), use one: `/sdock cooldowns` reports
+   "pool potion: shared lock seen" (or not-shared evidence).
+4. Start a cooldown, page away and back: same remaining time on every slot showing that item/pool.
+5. Item with unknown length (not in the table): shows `USED <elapsed>` until the game reading arrives.
 
-```text
-{schema=1, profileId, revision, savedAt, page={index,count},
- slots[1..15], readouts[1..3]}
-```
+### Stage 2: sappers, bombs, Jujus, Healthstones, runes (research verification)
+1. Use a health potion; `/dump C_Item.GetItemCooldown(13444)` and the protection/Healthstone IDs.
+   Repeat Healthstone vs rune.
+2. Sapper then grenade, and grenade then sapper, from ready states: inspect 10646, 15993, 18641
+   immediately and after 60 s.
+3. Use an Invisibility Potion and inspect ordinary potions; then use two different Juju items.
+   Record durations and cross-lockouts separately (cross-lockouts are not modelled in v1).
 
-Empty entries are exactly `{kind="empty"}`. Populated keys include kind/id/chord;
-readouts include kind/itemID. Optional metadata fields are as above. Spell count,
-spell cooldown, unit identity and arbitrary provider fields are never exported.
-No source or input table is mutated. `savedAt` is omitted if the injected time is
-invalid/unavailable. Timer `endsAt` uses server seconds in the eventual export.
-The plugin must label all disk data **saved snapshot** and show its age: writes
-happen at reload/logout, so icons/page/countdown may lag current play.
+## Retest if the TOC Interface moves off 16001
+- `StreonorDock.toc` `## Interface` line; `Bindings.xml` discovery and header.
+- `Init.lua`: every event name in the handler table (probe lists unregistered ones), CVAR_UPDATE
+  payload, `GetBuildInfo`, `WOW_PROJECT_ID`.
+- `Secure.lua`: `SecureActionButtonTemplate`, `useOnKeyDown` / `RegisterForClicks`,
+  `SetOverrideBindingClick`, `ClearOverrideBindings`, `GetBindingAction(key, true)`, PostClick.
+- `Panel.lua`: `GetCursorInfo` payloads, `ClearCursor`, `BackdropTemplate`, `CooldownFrameTemplate`
+  `SetCooldown`/`Clear`, `GameTooltip:SetSpellByID/SetItemByID`, `C_Timer.NewTimer`.
+- `Export.lua`: `issecretvalue`, `C_Spell.GetSpellInfo/GetSpellTexture/RequestLoadSpellData`,
+  `C_Item.GetItemIconByID/GetItemNameByID/GetItemInfo/RequestLoadItemDataByID/GetItemCount/
+  GetItemCooldown/GetItemSpell`, `C_SpellBook` rank functions, `C_Container.GetContainerNumFreeSlots`,
+  `GetMoney`, `GetServerTime`, `GetTime`, any base-cooldown API.
+- `CooldownData.lua`: every value (a build change already unverifies learned data).
 
-`CooldownTracker.new()` creates a session-local item-ID-indexed tracker:
-
-- `:observe(itemID, start, duration, now)` learns readable cooldown lengths over
-  1.5 seconds and labels them `game`. GCD samples are ignored. `(0,0)` is an explicit
-  ready sample and clears an active/unknown timer while retaining learning.
-  Missing or invalid data does not erase an active timer. Future start times reject.
-- `:useDetected(itemID, now)` starts a learned estimate only when ready; duplicate
-  detections cannot extend a running timer. Unknown duration starts an unknown state.
-- `:remaining(itemID, now)` returns seconds and `game`/`est`; ready/expired returns
-  `0,nil`, unknown length returns `nil,"est"` (display **CD ?**). Invalid arguments
-  return `nil,nil`. Unknown stays unknown until a readable cooldown/ready sample.
-- `:clear(itemID)` deletes timer and learning. `:changeItem(oldID,newID)` clears
-  oldID when changed, preserving independent newID state. The future adapter calls
-  it only after the last reference to oldID is removed; multiple slots share a timer.
-
-All tracker times use one injected clock; converting game uptime to server time
-belongs to part 2. Item-use detection is a future adapter concern, never inferred
-by this pure model from secret data. Spell cooldowns are unsupported.
-
-## WoW skeleton and remaining work
-
-`Init.lua` owns one event frame and a handler table. SavedVariables are initialized
-only in this addon's `ADDON_LOADED`. Character layouts use
-`SavedVariablesPerCharacter: StreonorDockCharDB`; the account export location will
-be `StreonorDockDB.export`. A random opaque profile token avoids player names.
-`/sdock help`, `/sdock probe`, `/sdock chords` and `/sdock export` describe the
-skeleton. The probe checks availability only and never invokes uncertain APIs.
-`Bindings.xml` defines next/previous/home entries without assigning keys; WoW loads
-that conventional filename separately from the TOC. Pager callbacks update the pure
-layout only. Protected maintenance closures queue to `PLAYER_REGEN_ENABLED`; combat
-paging/edits are rejected, never queued. Panel/Secure/Export have TODO(part 2) markers.
-
-Future live verification: load on build 1.60.1.70790, test pager bindings, relog
-persistence, random token stability, metadata loading, override behavior, both
-ActionButtonUseKeyDown settings, combat restrictions/taint, readable item cooldowns
-and secret guards. Capability presence alone proves none of those behaviors.
-
-If Interface changes from **16001**, retest the TOC Interface line, `Bindings.xml`
-discovery, `Init.lua` event/lockdown/availability paths, secret-value behavior, and
-every future C_Spell/C_Item or secure binding call before claiming support.
-
-Do not deploy part 1 as a finished controller. On separate authorization use the
-workspace `scripts\deploy.ps1 -Name StreonorDock`; the target here is
-`G:\World of Warcraft\_forever_\Interface\AddOns\StreonorDock` (not the old beta
-folder). Restart the client if a newly deployed addon folder does not appear.
+## Unverified assumptions
+See NOTES.md, "Unverified assumptions (part 2)". Every one is a reason to run the checklist.
