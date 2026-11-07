@@ -1,3 +1,0 @@
-﻿-- StreonorDock
-local ADDON, ns = ...
-
