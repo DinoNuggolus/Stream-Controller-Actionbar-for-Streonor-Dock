@@ -1,7 +1,7 @@
 # StreonorDock
 
 - type: original
-- status: part 2 implemented and host-tested (49 tests); NOT deployed, NOT verified in game
+- status: part 2 implemented and host-tested (56 tests, fix round applied); NOT deployed, NOT verified in game
 - Author: DinoNuggolus; license: MIT
 - TOC Interface: 16001
 - SavedVariables: StreonorDockDB (account: export, ui, settings, probe, cooldownLearned), StreonorDockCharDB (per-character layout)
