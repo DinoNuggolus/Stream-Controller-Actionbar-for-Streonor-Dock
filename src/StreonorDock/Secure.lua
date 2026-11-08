@@ -1,11 +1,13 @@
 local addonName, ns = ...
 -- 15 persistent SecureActionButtonTemplate buttons StreonorDockSlot1..15, declared in Slots.xml
--- (no parent, size or anchor: they exist even after a /reload in combat and keep working while
--- the editor is hidden). They are fired by temporary override bindings (SetOverrideBindingClick)
--- on the fixed ALT-CTRL-SHIFT chords. "*"-prefixed type/spell/item attributes only: no secure
--- snippets, no SetBinding/SaveBindings anywhere, nothing written to Blizzard frames. Every
--- attribute, click registration and binding change happens OUT OF COMBAT; in combat the work is
--- queued once and runs on PLAYER_REGEN_ENABLED. Unchanged settings are not rewritten.
+-- (no parent, size or anchor: they exist even after a /reload in combat and keep working while the
+-- bar is hidden, faded or in assignment mode). They are fired by temporary override bindings
+-- (SetOverrideBindingClick) on the fixed ALT-CTRL-SHIFT chords. "*"-prefixed type/spell/item
+-- attributes only: no secure snippets, no SetBinding/SaveBindings anywhere, nothing written to
+-- Blizzard frames. Every attribute, click registration and binding change happens OUT OF COMBAT;
+-- in combat the work is queued once and runs on PLAYER_REGEN_ENABLED.
+-- The visible bar buttons (Bar.lua) are SEPARATE secure targets that share the same attribute plan
+-- through Secure.WriteSlot.
 local Secure = {}
 ns.Secure = Secure
 local buttons = {}
@@ -14,9 +16,8 @@ Secure.buttons = buttons
 Secure.status = {ready=false, template=nil, bindings="not applied", applied=0, verified=nil,
     keyDown=nil, conflicts=0, lastError=nil, writes=0}
 local queued = false
-local applied = {}          -- applied[i][attributeKey] = value last written (diff source)
 local appliedKeyDown = nil
-local function issecret(v) return ns.Export.issecret(v) end
+local function issecret(v) return ns.Game.issecret(v) end
 local function plainString(v) if not issecret(v) and type(v)=="string" then return v end end
 
 function Secure.ButtonName(index) return "StreonorDockSlot" .. index end
@@ -24,10 +25,11 @@ function Secure.ClickAction(index) return "CLICK " .. Secure.ButtonName(index) .
 
 -- ONE PRESS = ONE USE ATTEMPT. Keys act on the DOWN edge only: the buttons register AnyDown (never
 -- AnyUp) and carry useOnKeyDown=true whatever the ActionButtonUseKeyDown CVar says. If the client
--- still delivers an UP click to the secure handler (evidence of a second attempt ~80-170 ms after the
--- first), PreClick makes it inert where that is possible: out of combat the action type is cleared
--- for that one click and restored in PostClick. In combat attributes cannot be written, so there the
--- guard relies on registration only (unverified on Forever). Per-slot edge counters feed /sdock clicks.
+-- still delivers an UP click to the secure handler, PreClick makes it inert where that is possible:
+-- out of combat the action type is cleared for that one click and restored in PostClick. In combat
+-- attributes cannot be written, so there the guard relies on registration only (unverified on
+-- Forever). Per-slot edge counters feed /sdock clicks. Counters are input-routing evidence, never
+-- proof that a spell or item was used.
 Secure.clicks = {}
 for i=1,15 do Secure.clicks[i] = {down=0, up=0, attempts=0} end
 function Secure.ResetClicks() for i=1,15 do Secure.clicks[i] = {down=0, up=0, attempts=0} end end
@@ -57,21 +59,54 @@ local function restoreType(self)
     end
 end
 local function postClick(self, mouse, down)
-    -- Insecure PostClick on our own button, after the secure handler, in combat too. It means
-    -- "the key was pressed", NOT that the item was used (the use can fail); the timers treat it
-    -- as a press and reconcile with readable game data. Never acts on gameplay.
-    ns.Safe("press", function()
-        restoreType(self)
-        if down==false then return end   -- an up edge is never a press
-        if self.streonorKind=="spell" and self.streonorID then
-            ns.Export.OnSpellPress(self.streonorID)
-        elseif self.streonorKind=="item" and self.streonorID then
-            if ns.Export.OnKeyPress(self.streonorID) then
-                if ns.Panel.RefreshCooldowns then ns.Panel.RefreshCooldowns() end
-                ns.Export.MarkDirty()
-            end
+    -- Insecure PostClick on our own button, after the secure handler. Restores the type cleared
+    -- for an inert up edge. It never acts on gameplay and starts no timer or estimate.
+    ns.Safe("postclick", restoreType, self)
+end
+-- Shared by chord targets and visible bar buttons.
+function Secure.Hook(button, index)
+    if button.streonorHooked then return end
+    button.streonorIndex = index
+    button.streonorHooked = true
+    button:SetScript("PreClick", preClick)
+    button:SetScript("PostClick", postClick)
+end
+-- Always the DOWN edge for a button: AnyDown + useOnKeyDown. Caller guarantees out of combat.
+function Secure.SetDown(button)
+    button:SetAttribute("useOnKeyDown", true)
+    button:RegisterForClicks("AnyDown")
+    Secure.status.writes = Secure.status.writes + 2
+end
+
+-- Writes the attribute plan for one slot onto one secure button where it differs from what was last
+-- applied; every key of the plan is set or cleared, so no stale attribute survives a kind change.
+-- Caller guarantees out of combat. Returns whether anything was written.
+function Secure.WriteSlot(button, slot)
+    local name
+    if type(slot)=="table" and slot.kind=="spell" and not slot.pinned then
+        name = plainString((ns.Game.SpellMeta(slot.id)))
+    end
+    local plan = ns.Core.secureAttributes(slot, name)
+    local last = button.streonorApplied or {}
+    local changed = false
+    for _, key in ipairs(ns.Core.SECURE_KEYS) do
+        if (plan[key] or nil)~=last[key] then changed = true end
+    end
+    if changed then
+        -- Clear the type first so no mix of old and new attributes is ever actionable.
+        button:SetAttribute("*type1", nil)
+        for _, key in ipairs(ns.Core.SECURE_KEYS) do
+            if key~="*type1" then button:SetAttribute(key, plan[key] or nil) end
         end
-    end)
+        if plan["*type1"] then button:SetAttribute("*type1", plan["*type1"]) end
+        local record = {}
+        for _, key in ipairs(ns.Core.SECURE_KEYS) do record[key] = plan[key] or nil end
+        button.streonorApplied = record
+        Secure.status.writes = Secure.status.writes + 4
+    end
+    button.streonorKind = plan["*type1"] or nil
+    button.streonorID = plan["*type1"] and slot.id or nil
+    return changed
 end
 
 -- Collects the XML-declared buttons (fallback: create parentless ones) and the binding owner.
@@ -90,11 +125,7 @@ local function init()
             Secure.status.lastError = "SecureActionButtonTemplate button " .. i .. " missing"
             return false
         end
-        if not buttons[i] then
-            button.streonorIndex = i
-            button:SetScript("PreClick", preClick)
-            button:SetScript("PostClick", postClick)
-        end
+        Secure.Hook(button, i)
         buttons[i] = button
     end
     Secure.status.template = "available"
@@ -103,53 +134,17 @@ local function init()
 end
 
 -- Always the DOWN edge. The ActionButtonUseKeyDown CVar is only read for /sdock probe: following it
--- (AnyUp when it is off) is a second edge policy we do not want. Whether the template honours the
--- attribute over the CVar is unverified on Forever.
+-- (AnyUp when it is off) is a second edge policy we do not want.
 function Secure.ApplyClickDirection()
-    local keyDown = true
-    if appliedKeyDown~=keyDown then
-        for i=1,15 do
-            buttons[i]:SetAttribute("useOnKeyDown", keyDown)
-            buttons[i]:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
-        end
-        appliedKeyDown = keyDown
-        Secure.status.writes = Secure.status.writes + 30
+    if appliedKeyDown~=true then
+        for i=1,15 do Secure.SetDown(buttons[i]) end
+        appliedKeyDown = true
     end
-    Secure.status.keyDown = keyDown
+    Secure.status.keyDown = true
 end
-
-local function spellName(spellID)
-    local name = ns.Export.SpellMeta(spellID)
-    return plainString(name)
-end
--- Writes the current page's attributes where they differ from what was last applied; every
--- key of the plan is set or cleared, so no stale attribute survives a kind change.
 function Secure.ApplyAttributes()
-    local page = ns.state.pages[ns.state.currentPage]
-    for i=1,15 do
-        local slot, button = page.slots[i], buttons[i]
-        local name = slot.kind=="spell" and not slot.pinned and spellName(slot.id) or nil
-        local plan = ns.Core.secureAttributes(slot, name)
-        local last = applied[i] or {}
-        local changed = false
-        for _, key in ipairs(ns.Core.SECURE_KEYS) do
-            if (plan[key] or nil)~=last[key] then changed = true end
-        end
-        if changed then
-            -- Clear the type first so no mix of old and new attributes is ever actionable.
-            button:SetAttribute("*type1", nil)
-            for _, key in ipairs(ns.Core.SECURE_KEYS) do
-                if key~="*type1" then button:SetAttribute(key, plan[key] or nil) end
-            end
-            if plan["*type1"] then button:SetAttribute("*type1", plan["*type1"]) end
-            local record = {}
-            for _, key in ipairs(ns.Core.SECURE_KEYS) do record[key] = plan[key] or nil end
-            applied[i] = record
-            Secure.status.writes = Secure.status.writes + 4
-        end
-        button.streonorKind = plan["*type1"] or nil
-        button.streonorID = plan["*type1"] and slot.id or nil
-    end
+    local page = ns.CurrentPage()
+    for i=1,15 do Secure.WriteSlot(buttons[i], page[i]) end
 end
 
 -- action string or nil, ok. Second argument requests the effective (override-aware) mapping,
@@ -225,12 +220,13 @@ end
 -- (button setup, attributes, click registration, bindings) is attempted during lockdown.
 local function applyAll()
     if InCombatLockdown() then return queue() end
-    if not ns.state or not init() then return false end
+    if not ns.profile or not init() then return false end
     Secure.ApplyClickDirection()
     Secure.ApplyAttributes()
+    if ns.Bar and ns.Bar.ApplySecure then ns.Safe("bar secure", ns.Bar.ApplySecure) end
     return Secure.ApplyBindings()
 end
 -- Public entry: runs now out of combat, else queues once (the guard lives in applyAll only, so
--- there is exactly one place that decides; tests delete it to prove they would catch that).
+-- tests delete it to prove they would catch that).
 Secure.Request = applyAll
 function Secure.IsQueued() return queued end

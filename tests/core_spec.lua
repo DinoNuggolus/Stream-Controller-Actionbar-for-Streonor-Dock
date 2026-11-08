@@ -1,215 +1,227 @@
 local addonName, ns = ...
 local A = ns.Assert
-local function core() A.equal(type(ns.Core), "table", "Core module available"); return ns.Core end
-local chunk = loadfile("src/StreonorDock/Core.lua")
-if chunk then chunk(addonName, ns) end
-local function fresh() return core().recover(nil, "opaque-1") end
-local function assign(s, area, i, slot) return core().assign(s, area, i, slot, false) end
-A.test("fresh defaults have fifteen keys and three independent readouts", function()
-    local s = fresh()
-    A.equal(s.profileId, "opaque-1"); A.equal(s.revision, 0); A.equal(s.currentPage, 1)
-    A.equal(#s.pages, 1); A.equal(#s.pages[1].slots, 15); A.equal(#s.pages[1].readouts, 3)
-    A.deep(s.pages[1].slots[1], {kind="empty"})
-    A.equal(s.pages[1].slots[1] == s.pages[1].slots[2], false)
-end)
-A.test("all fixed binding strings and index bounds", function()
+for _, file in ipairs({"Core","Layout","Config"}) do
+    local chunk = assert(loadfile("src/StreonorDock/" .. file .. ".lua"))
+    chunk(addonName, ns)
+end
+local Core, Layout, Config = ns.Core, ns.Layout, ns.Config
+
+A.test("fixed chords and index bounds", function()
     local keys = {"1","2","3","4","5","6","7","8","9","0","-","=","[","]","\\"}
-    for i=1,15 do A.equal(core().chord(i), "ALT-CTRL-SHIFT-" .. keys[i]) end
-    for _, i in ipairs({0,16,1.5,"1",false}) do A.equal(core().chord(i), nil) end
+    for i=1,15 do A.equal(Core.chord(i), "ALT-CTRL-SHIFT-" .. keys[i]); A.equal(Core.chordKey(i), keys[i]) end
+    for _, i in ipairs({0,16,1.5,"1",false}) do A.equal(Core.chord(i), nil) end
 end)
-A.test("assign replace clear and caller isolation", function()
-    local s, input = fresh(), {kind="spell", id=123, extra={x=1}}
-    local nextState, ok = assign(s,"slots",1,input)
-    A.equal(ok,true); A.deep(nextState.pages[1].slots[1],{kind="spell",id=123})
-    A.deep(s.pages[1].slots[1],{kind="empty"}); A.equal(nextState.revision,1)
-    input.id=999; A.equal(nextState.pages[1].slots[1].id,123)
-    nextState = assign(nextState,"slots",1,{kind="item",id=456})
-    A.deep(nextState.pages[1].slots[1],{kind="item",id=456})
-    nextState = assign(nextState,"slots",1,{kind="empty"})
-    A.deep(nextState.pages[1].slots[1],{kind="empty"})
-    nextState = assign(nextState,"readouts",3,{kind="item",itemID=777})
-    A.deep(nextState.pages[1].readouts[3],{kind="item",itemID=777})
+A.test("slot validation keeps only empty/spell/item with pinned flag", function()
+    A.deep(Core.slot({kind="spell", id=5, pinned=true, extra=1}), {kind="spell", id=5, pinned=true})
+    A.deep(Core.slot({kind="spell", id=5, pinned=false}), {kind="spell", id=5})
+    A.deep(Core.slot({kind="item", id=9, count=3}), {kind="item", id=9})
+    A.equal(Core.slot({kind="money"}), nil); A.equal(Core.slot({kind="currency", currencyID=3}), nil)
+    A.equal(Core.slot({kind="spell", id=0}), nil); A.equal(Core.slot({kind="spell", id=1.5}), nil)
+    A.equal(Core.slot("x"), nil)
 end)
-A.test("rejections retain exact state and validate ids kinds indices areas", function()
-    local s = fresh()
-    local bad = {{kind="macro",id=1},{kind="spell"},{kind="item",id=0},{kind="item",id=-1},
-        {kind="spell",id=1.2},{kind="spell",id="1"},{kind="spell",id=math.huge},{kind="item",id=0/0},false}
-    for _, slot in ipairs(bad) do
-        local result, ok = assign(s,"slots",1,slot); A.equal(result,s); A.equal(ok,false)
-    end
-    for _, args in ipairs({{"readouts",1,{kind="spell",id=1}}, {"slots",0,{kind="empty"}},
-        {"slots",16,{kind="empty"}}, {"readouts",4,{kind="empty"}}, {"other",1,{kind="empty"}}}) do
-        local result, ok = assign(s,unpack(args)); A.equal(result,s); A.equal(ok,false)
-    end
-    local result, ok, why = core().assign(s,"slots",1,{kind="spell",id=1},true)
-    A.equal(result,s); A.equal(ok,false); A.equal(why,"combat")
-    A.deep(s,fresh())
+A.test("pages: exactly fifteen explicit slots, sparse input never compacts", function()
+    local p = Core.cleanPage({[3]={kind="spell", id=7}, [20]={kind="item", id=1}, [4]="junk"})
+    A.equal(#p, 15); A.deep(p[3], {kind="spell", id=7}); A.deep(p[4], {kind="empty"}); A.deep(p[1], {kind="empty"})
+    local profile = Core.ensurePages({pageCount=3, pages={[1]=p}})
+    A.equal(profile.pageCount, 3); A.equal(#profile.pages[3], 15)
+    local clamp = Core.ensurePages({pageCount=99}); A.equal(clamp.pageCount, 10)
+    local inferred = Core.ensurePages({pages={[1]={}, [4]={}}}); A.equal(inferred.pageCount, 4)
 end)
-A.test("pages restore exactly create empty and stop at ten", function()
-    local s = assign(fresh(),"slots",15,{kind="spell",id=42})
-    s = assign(s,"readouts",1,{kind="item",itemID=7})
-    local pageOne = s.pages[1]
-    s = core().page(s,"next",false)
-    A.equal(s.currentPage,2); A.deep(s.pages[2].slots[15],{kind="empty"})
-    s = assign(s,"slots",2,{kind="item",id=8})
-    local pageTwo = s.pages[2]
-    s = core().page(s,"home",false); A.deep(s.pages[1],pageOne)
-    s = core().page(s,"prev",false); A.equal(s.currentPage,1)
-    s = core().page(s,"next",false); A.deep(s.pages[2],pageTwo)
-    for i=3,10 do s = core().page(s,"next",false); A.equal(s.currentPage,i) end
-    local result, ok = core().page(s,"next",false); A.equal(result,s); A.equal(ok,false)
-    for _, action in ipairs({"next","prev","home"}) do
-        local r, accepted, why = core().page(s,action,true)
-        A.equal(r,s); A.equal(accepted,false); A.equal(why,"combat")
-    end
-    local r, accepted = core().page(s,"invalid",false); A.equal(r,s); A.equal(accepted,false)
+A.test("setSlot: replace, clear, no-op detection, combat and validation rejections", function()
+    local profile = Core.ensurePages({})
+    local ok, changed = Core.setSlot(profile, 1, 1, {kind="spell", id=123}, false)
+    A.equal(ok, true); A.equal(changed, true); A.deep(profile.pages[1][1], {kind="spell", id=123})
+    ok, changed = Core.setSlot(profile, 1, 1, {kind="spell", id=123}, false)
+    A.equal(ok, true); A.equal(changed, false, "same value is a no-op")
+    ok, changed = Core.setSlot(profile, 1, 1, {kind="spell", id=123, pinned=true}, false)
+    A.equal(changed, true, "pinning is a change")
+    local before = Core.cleanPage(profile.pages[1])
+    local _, _, reason = Core.setSlot(profile, 1, 1, {kind="item", id=4}, true); A.equal(reason, "combat")
+    _, _, reason = Core.setSlot(profile, 1, 16, {kind="item", id=4}, false); A.equal(reason, "index")
+    _, _, reason = Core.setSlot(profile, 1, 2, {kind="money"}, false); A.equal(reason, "slot")
+    _, _, reason = Core.setSlot(profile, 2, 2, {kind="item", id=4}, false); A.equal(reason, "page")
+    A.deep(profile.pages[1], before)
+    Core.setSlot(profile, 1, 1, {kind="empty"}, false); A.deep(profile.pages[1][1], {kind="empty"})
 end)
-A.test("recovery merges malformed sparse saves without mutation", function()
-    for _, bad in ipairs({false,1,"bad"}) do A.deep(core().recover(bad,"opaque-1"),fresh()) end
-    local saved = {profileId="kept",revision=5,currentPage=99,pages={
-        [1]={slots={[1]={kind="item",id=12},[2]={kind="spell",id=-3}},readouts="bad"},
-        [3]={slots={[15]={kind="spell",id=99}}},[11]={}}}
-    local s = core().recover(saved,"new")
-    A.equal(s.profileId,"kept"); A.equal(s.revision,5); A.equal(#s.pages,3); A.equal(s.currentPage,3)
-    A.deep(s.pages[1].slots[2],{kind="empty"}); A.equal(s.pages[3].slots[15].id,99)
-    A.equal(#s.pages[2].slots,15); A.equal(#s.pages[1].readouts,3)
-    s.pages[1].slots[1].id=77; A.equal(saved.pages[1].slots[1].id,12)
-    local cycle = {}; cycle.pages=cycle
-    A.equal(#core().recover(cycle,"x").pages,1)
-    s = core().recover({profileId={},revision=-1,currentPage="bad",pages=false},"x")
-    A.equal(s.profileId,"x"); A.equal(s.revision,0); A.equal(s.currentPage,1)
+A.test("moveSlot swaps occupied, moves into empty, same slot cancels", function()
+    local profile = Core.ensurePages({})
+    Core.setSlot(profile, 1, 1, {kind="item", id=1}, false); Core.setSlot(profile, 1, 2, {kind="item", id=2}, false)
+    local ok, changed = Core.moveSlot(profile, 1, 1, 2, false)
+    A.equal(changed, true); A.equal(profile.pages[1][1].id, 2); A.equal(profile.pages[1][2].id, 1)
+    ok, changed = Core.moveSlot(profile, 1, 2, 5, false)
+    A.equal(profile.pages[1][5].id, 1); A.deep(profile.pages[1][2], {kind="empty"})
+    ok, changed = Core.moveSlot(profile, 1, 5, 5, false); A.equal(changed, false)
+    local _, _, reason = Core.moveSlot(profile, 1, 1, 2, true); A.equal(reason, "combat")
 end)
-A.test("deterministic export shape metadata and only item timers", function()
-    local s = assign(fresh(),"slots",1,{kind="spell",id=42})
-    s = assign(s,"slots",2,{kind="item",id=8})
-    s = assign(s,"readouts",1,{kind="item",itemID=8})
-    local providers = {spells={[42]={name="Spell",iconFileID=10,count=999,endsAt=99}},
-        items={[8]={name="Item",iconFileID=20,count=0,endsAt=150,source="est"}}}
-    local e = core().buildExport(s,100,function() return false end,providers)
-    A.deep(e,{schema=1,profileId="opaque-1",revision=3,savedAt=100,page={index=1,count=1},
-        slots=e.slots,readouts=e.readouts})
-    A.equal(#e.slots,15); A.equal(#e.readouts,3)
-    A.deep(e.slots[1],{kind="spell",id=42,chord=core().chord(1),name="Spell",iconFileID=10})
-    A.deep(e.slots[2],{kind="item",id=8,chord=core().chord(2),name="Item",iconFileID=20,count=0,endsAt=150,source="est"})
-    A.deep(e.readouts[1],{kind="item",itemID=8,name="Item",iconFileID=20,count=0,endsAt=150,source="est"})
-    A.deep(e.slots[3],{kind="empty"}); A.deep(e.readouts[3],{kind="empty"})
-    A.deep(e,core().buildExport(s,100,function() return false end,providers))
-    e.slots[1].id=1; A.equal(s.pages[1].slots[1].id,42); A.equal(providers.spells[42].name,"Spell")
-end)
-A.test("export removes unavailable secret malformed and stale fields", function()
-    local secret = setmetatable({}, {__tostring=function() error("secret touched") end})
-    local function issecret(v) return v == secret end
-    local s = assign(fresh(),"slots",1,{kind="item",id=8})
-    local data = {items={[8]={name=secret,iconFileID=secret,count=secret,endsAt=secret,source=secret}}}
-    local e = core().buildExport(s,100,issecret,data)
-    A.deep(e.slots[1],{kind="item",id=8,chord=core().chord(1)})
-    data.items[8]={name="cached",count=12,iconFileID=1,endsAt=150,source="game"}
-    local previous = core().buildExport(s,100,issecret,data)
-    data.items[8]=nil
-    local current = core().buildExport(s,101,issecret,data)
-    A.equal(previous.slots[1].count,12); A.equal(current.slots[1].count,nil)
-    data.items[8]={count=-1,iconFileID="bad",endsAt=math.huge,source="other",name={}}
-    A.deep(core().buildExport(s,102,issecret,data).slots[1],current.slots[1])
-    A.equal(core().buildExport(s,secret,issecret,data).savedAt,nil)
-    A.deep(core().buildExport(s,100,issecret,{items=secret}).slots[1],current.slots[1])
+A.test("page turning wraps, home selects 1, shrink archives and restore is explicit", function()
+    A.equal(Core.turn(1, 3, "next"), 2); A.equal(Core.turn(3, 3, "next"), 1)
+    A.equal(Core.turn(1, 3, "prev"), 3); A.equal(Core.turn(2, 3, "home"), 1); A.equal(Core.turn(9, 3, "next"), 2)
+    local profile = Core.ensurePages({pageCount=3})
+    Core.setSlot(profile, 3, 4, {kind="item", id=44}, false)
+    local removed = Core.setPageCount(profile, 1)
+    A.deep(removed, {2, 3}); A.equal(profile.pageCount, 1); A.equal(profile.pages[3], nil)
+    A.equal(#profile.archivedPages, 2)
+    Core.setPageCount(profile, 2); A.deep(profile.pages[2][4], {kind="empty"}, "growing creates empty pages")
+    A.equal(#profile.archivedPages, 2, "archive untouched by growing")
+    local restored = Core.restoreArchive(profile)
+    A.equal(restored, 2); A.equal(profile.pageCount, 4); A.equal(#profile.archivedPages, 0)
 end)
 A.test("cursor payload normalization: item id or link, spell id or spellbook, rejects others", function()
-    local n = core().normalizeCursor
-    A.deep(n({"item",8,"|Hitem:8::|h[x]|h"}),{kind="item",id=8})
-    A.deep(n({"item",nil,"|cffffffff|Hitem:1234:0:0|h[Thing]|h|r"}),{kind="item",id=1234})
-    A.deep(n({"spell",5,"spell",774}),{kind="spell",id=774})
-    A.deep(n({"spell",5,"spell",nil,resolved=8936}),{kind="spell",id=8936})
-    for _, cursor in ipairs({{"macro",3},{"money",100},{"mount",1,2},{"petaction",1},{"merchant",2},
-        {"spell",5,"spell",0},{"item",0,"junk"},{"item",1.5},{}}) do
-        local value, why = n(cursor); A.equal(value,nil); A.equal(type(why),"string")
-    end
-    A.equal(select(2,n(nil)),"empty"); A.equal(select(2,n({})),"empty")
-    A.equal(select(2,n({"macro",1})),"unsupported")
-    local secret = setmetatable({}, {__eq=function() error("secret compared") end})
-    local issecret = function(v) return rawequal(v, secret) end
-    A.equal(select(2,n({secret},issecret)),"empty")
-    A.equal(select(2,n({"item",secret,secret},issecret)),"item-id")
-    A.deep(n({"spell",secret,secret,99},issecret),{kind="spell",id=99})
+    A.deep(Core.normalizeCursor({"item", 6948}), {kind="item", id=6948})
+    A.deep(Core.normalizeCursor({"item", nil, "|cffffffff|Hitem:6948::::|h[x]|h|r"}), {kind="item", id=6948})
+    A.deep(Core.normalizeCursor({"spell", 1, "spell", 774}), {kind="spell", id=774})
+    A.deep(Core.normalizeCursor({"spell", 3, "spell", resolved=8936}), {kind="spell", id=8936})
+    local _, reason = Core.normalizeCursor({"macro", 1}); A.equal(reason, "unsupported")
+    _, reason = Core.normalizeCursor({"petaction"}); A.equal(reason, "unsupported")
+    _, reason = Core.normalizeCursor({}); A.equal(reason, "empty")
+    local secret = {}
+    local function issecret(v) return v == secret end
+    _, reason = Core.normalizeCursor({"item", secret}, issecret); A.equal(reason, "item-id")
+    _, reason = Core.normalizeCursor({secret}, issecret); A.equal(reason, "empty")
 end)
-A.test("area conversion keeps readouts item-only", function()
-    local f = core().forArea
-    A.deep(f({kind="item",id=8},"readouts"),{kind="item",itemID=8})
-    A.equal(select(2,f({kind="spell",id=1},"readouts")),"items-only")
-    A.deep(f({kind="spell",id=1},"slots"),{kind="spell",id=1})
-    A.equal(f(nil,"slots"),nil)
-end)
-A.test("slot identity matching for late metadata callbacks", function()
-    local s = assign(fresh(),"slots",1,{kind="spell",id=42})
-    s = assign(s,"slots",7,{kind="spell",id=42})
-    s = assign(s,"readouts",2,{kind="item",itemID=42})
-    A.deep(core().findSlots(s,"spell",42),{{area="slots",index=1},{area="slots",index=7}})
-    A.deep(core().findSlots(s,"item",42),{{area="readouts",index=2}})
-    -- Slot 1 reassigned before the callback arrives: only slot 7 still matches.
-    s = assign(s,"slots",1,{kind="item",id=9})
-    A.deep(core().findSlots(s,"spell",42),{{area="slots",index=7}})
-    A.deep(core().findSlots(s,"spell",9),{})
-    -- Other pages never match; identity strings are kind-qualified.
-    local other = core().page(s,"next",false)
-    A.deep(core().findSlots(other,"spell",42),{})
-    A.equal(core().identity({kind="spell",id=42}),"spell:42"); A.equal(core().identity({kind="item",itemID=4}),"item:4")
-    A.equal(core().identity({kind="empty"}),nil); A.equal(core().identity(nil),nil)
-    A.deep(core().findSlots(nil,"spell",1),{}); A.deep(core().findSlots(s,"spell",0),{})
-end)
-A.test("item references across pages and current page item list", function()
-    local s = assign(fresh(),"slots",3,{kind="item",id=9})
-    s = assign(s,"readouts",1,{kind="item",itemID=5}); s = assign(s,"slots",4,{kind="item",id=9})
-    A.deep(core().pageItems(s),{5,9})
-    s = core().page(s,"next",false)
-    A.deep(core().pageItems(s),{}); A.equal(core().itemReferenced(s,9),true); A.equal(core().itemReferenced(s,6),false)
-    A.equal(core().itemReferenced(nil,9),false)
+A.test("sanitizer drops secrets and non-plain values before use", function()
+    local secret = {}
+    local function issecret(v) return v == secret end
+    local out = Core.sanitize({a=1, b=secret, [secret]=1, c={d=true, e=secret}, f=function() end, g=0/0}, issecret)
+    A.deep(out, {a=1, c={d=true}})
 end)
 A.test("secure attribute plans clear stale fields and honor rank pinning", function()
-    local p = core().secureAttributes
-    A.deep(p({kind="spell",id=42},"Moonfire"),{["*type1"]="spell",["*spell1"]="Moonfire",["*item1"]=false})
-    A.deep(p({kind="spell",id=42},nil),{["*type1"]="spell",["*spell1"]=42,["*item1"]=false})
-    A.deep(p({kind="spell",id=42,pinned=true},"Moonfire"),{["*type1"]="spell",["*spell1"]=42,["*item1"]=false})
-    A.deep(p({kind="item",id=8}),{["*type1"]="item",["*spell1"]=false,["*item1"]="item:8"})
-    A.deep(p({kind="empty"}),{["*type1"]=false,["*spell1"]=false,["*item1"]=false})
-    A.deep(p(nil),{["*type1"]=false,["*spell1"]=false,["*item1"]=false})
-    A.deep(p({kind="spell",id=-1},"x"),{["*type1"]=false,["*spell1"]=false,["*item1"]=false})
-    A.deep(core().SECURE_KEYS,{"*type1","*spell1","*item1"})
-    for _, plan in ipairs({p({kind="spell",id=1},"x"),p({kind="item",id=2}),p({kind="empty"})}) do
-        for _, key in ipairs(core().SECURE_KEYS) do A.equal(plan[key]~=nil,true,"every key set or cleared") end
-        A.equal(plan.type,nil); A.equal(plan.spell,nil); A.equal(plan.item,nil)
-    end
-    A.equal(core().chordKey(1),"1"); A.equal(core().chordKey(11),"-"); A.equal(core().chordKey(15),"\\")
-    A.equal(core().chordKey(16),nil)
+    A.deep(Core.secureAttributes({kind="spell", id=5}, "Bolt"), {["*type1"]="spell", ["*spell1"]="Bolt", ["*item1"]=false})
+    A.deep(Core.secureAttributes({kind="spell", id=5, pinned=true}, "Bolt"), {["*type1"]="spell", ["*spell1"]=5, ["*item1"]=false})
+    A.deep(Core.secureAttributes({kind="spell", id=5}, nil), {["*type1"]="spell", ["*spell1"]=5, ["*item1"]=false})
+    A.deep(Core.secureAttributes({kind="item", id=8}), {["*type1"]="item", ["*spell1"]=false, ["*item1"]="item:8"})
+    A.deep(Core.secureAttributes({kind="empty"}), {["*type1"]=false, ["*spell1"]=false, ["*item1"]=false})
 end)
-A.test("pinned flag survives assign and recovery but not export", function()
-    local s = assign(fresh(),"slots",2,{kind="spell",id=42,pinned=true})
-    A.deep(s.pages[1].slots[2],{kind="spell",id=42,pinned=true})
-    A.deep(core().recover(s,"x").pages[1].slots[2],{kind="spell",id=42,pinned=true})
-    A.deep(assign(fresh(),"slots",2,{kind="spell",id=42,pinned="yes"}).pages[1].slots[2],{kind="spell",id=42})
-    A.equal(core().buildExport(s,1).slots[2].pinned,nil)
+A.test("minimal export: icons only, empty/resolved/unresolved, disabled blanks", function()
+    local slots = Core.newPage(); slots[1] = {kind="spell", id=5}; slots[2] = {kind="item", id=6}; slots[15] = {kind="spell", id=7}
+    local icons = {[5]=111, [7]=222}
+    local function iconFor(slot) return icons[slot.id] end
+    local e = Core.buildExport(true, "abc", 2, slots, iconFor)
+    A.equal(e.schemaVersion, 2); A.equal(e.enabled, true); A.equal(e.profileId, "abc"); A.equal(e.page, 2)
+    A.deep(e.icons[1], {iconFileID=111}); A.deep(e.icons[2], {unresolved=true}); A.deep(e.icons[3], {})
+    A.deep(e.icons[15], {iconFileID=222}); A.equal(#e.icons, 15)
+    local off = Core.buildExport(false, "abc", 1, slots, iconFor)
+    A.equal(off.enabled, false); for i=1,15 do A.deep(off.icons[i], {}) end
+    local bad = Core.buildExport(true, 7, 99, nil, nil); A.equal(bad.profileId, "uninitialized"); A.equal(bad.page, 1)
+    for k in pairs(e) do A.equal(({schemaVersion=1, enabled=1, profileId=1, page=1, icons=1})[k], 1, "no telemetry key " .. k) end
 end)
-A.test("sanitizer wrapper drops secrets and non-plain values before Core", function()
-    local secret = setmetatable({}, {__index=function() error("secret indexed") end,
-        __eq=function() error("secret compared") end})
-    local issecret = function(v) return rawequal(v, secret) end
-    local raw = {spells={[42]={name=secret,iconFileID=10}},items={[8]={count=secret,name="x",fn=print,
-        nan=0/0,inf=math.huge,nested={deep={value=1,hidden=secret}}}},player={moneyCopper=secret,freeBagSlots=3},
-        [secret]="keyed",whole=secret}
-    local clean = core().sanitize(raw, issecret)
-    A.deep(clean,{spells={[42]={iconFileID=10}},items={[8]={name="x",nested={deep={value=1}}}},player={freeBagSlots=3}})
-    A.equal(core().sanitize(secret, issecret),nil)
-    local cycle = {}; cycle.self=cycle
-    A.equal(type(core().sanitize(cycle)),"table")
-    A.equal(raw.items[8].count, secret, "input is not mutated")
-    local s = assign(fresh(),"slots",1,{kind="spell",id=42})
-    local e = core().buildExport(s,5,issecret,clean)
-    A.deep(e.slots[1],{kind="spell",id=42,chord=core().chord(1),iconFileID=10})
-    A.deep(e.player,{freeBagSlots=3})
+A.test("cooldown text thresholds 89/90/5399/5400 and zero", function()
+    A.equal(Core.formatRemaining(0), nil); A.equal(Core.formatRemaining(-1), nil); A.equal(Core.formatRemaining(0/0), nil)
+    A.equal(Core.formatRemaining(0.2), "1"); A.equal(Core.formatRemaining(30.0), "30"); A.equal(Core.formatRemaining(30.2), "31")
+    A.equal(Core.formatRemaining(89), "89"); A.equal(Core.formatRemaining(89.9), "90")
+    A.equal(Core.formatRemaining(90), "2m"); A.equal(Core.formatRemaining(150), "3m")
+    A.equal(Core.formatRemaining(5399), "90m"); A.equal(Core.formatRemaining(5400), "2h"); A.equal(Core.formatRemaining(7200), "2h")
+    A.equal(Core.formatRemaining(7201), "3h")
+    A.equal(Core.formatRemaining(61, 60, 3600), "2m", "custom minute threshold")
 end)
-A.test("export player values and used cooldown source", function()
-    local s = assign(fresh(),"readouts",1,{kind="item",itemID=8})
-    local e = core().buildExport(s,5,nil,{player={moneyCopper=12345,freeBagSlots=0},
-        items={[8]={source="used",endsAt=99,count=2}}})
-    A.deep(e.player,{moneyCopper=12345,freeBagSlots=0})
-    A.deep(e.readouts[1],{kind="item",itemID=8,count=2,source="used"})
-    A.equal(core().buildExport(s,5,nil,{player={moneyCopper=-1,freeBagSlots=1.5}}).player,nil)
+
+-- Layout ---------------------------------------------------------------------------------------
+A.test("mirror layout: 5x3 landscape, slot 1 bottom-left, right then up, slot 15 top-right", function()
+    local g = Layout.grid({mirror=true})
+    A.equal(g.cols, 5); A.equal(g.rows, 3)
+    local function at(n) local c, r = g.cell(n); return c .. "," .. r end   -- row 0 = top
+    A.equal(at(1), "0,2"); A.equal(at(5), "4,2"); A.equal(at(6), "0,1"); A.equal(at(10), "4,1")
+    A.equal(at(11), "0,0"); A.equal(at(15), "4,0")
+    local seen = {}
+    for n=1,15 do seen[at(n)] = true end
+    local count = 0; for _ in pairs(seen) do count = count + 1 end
+    A.equal(count, 15, "fifteen distinct cells")
+end)
+A.test("custom layouts: single row/column, orientation and grow directions, gaps keep cells", function()
+    local row = Layout.grid({mirror=false, columns=15, orientation="horizontal", growX="right", growY="down"})
+    A.equal(row.cols, 15); A.equal(row.rows, 1)
+    local c, r = row.cell(15); A.equal(c, 14); A.equal(r, 0)
+    local col = Layout.grid({mirror=false, columns=1, orientation="horizontal", growX="right", growY="down"})
+    A.equal(col.cols, 1); A.equal(col.rows, 15)
+    c, r = col.cell(15); A.equal(c, 0); A.equal(r, 14)
+    local custom = Layout.grid({mirror=false, columns=4, orientation="horizontal", growX="right", growY="down"})
+    A.equal(custom.cols, 4); A.equal(custom.rows, 4)
+    c, r = custom.cell(5); A.equal(c, 0); A.equal(r, 1)
+    local up = Layout.grid({mirror=false, columns=4, orientation="horizontal", growX="left", growY="up"})
+    c, r = up.cell(1); A.equal(c, 3); A.equal(r, 3)
+    local vert = Layout.grid({mirror=false, columns=5, orientation="vertical", growX="right", growY="down"})
+    A.equal(vert.rows, 3); A.equal(vert.cols, 5)
+    c, r = vert.cell(4); A.equal(c, 1); A.equal(r, 0)
+    c, r = vert.cell(15); A.equal(c, 4); A.equal(r, 2)
+end)
+A.test("metrics, offsets, visibility filter and centre preservation", function()
+    local g, w, h = Layout.metrics({mirror=true}, 40, 4)
+    A.equal(w, 5*40+4*4); A.equal(h, 3*40+2*4)
+    local x, y = Layout.offset(g, 1, 40, 4); A.equal(x, 0); A.equal(y, -88)
+    x, y = Layout.offset(g, 15, 40, 4); A.equal(x, 176); A.equal(y, 0)
+    local page = Core.newPage(); page[3] = {kind="item", id=1}
+    local v = Layout.visible(page, false, false); A.equal(v[3], true); A.equal(v[1], false)
+    v = Layout.visible(page, true, false); A.equal(v[1], true)
+    v = Layout.visible(page, false, true); A.equal(v[15], true)
+    local ox, oy = Layout.centerOffset(1000, 600, 960, 540, 2); A.equal(ox, 20); A.equal(oy, 30)
+    ox, oy = Layout.centerOffset(nil, 1, 1, 1, 1); A.equal(ox, 0)
+end)
+
+-- Config ---------------------------------------------------------------------------------------
+A.test("profile validation clamps ranges and replaces invalid values by defaults", function()
+    local profile = {bar={scale=9, buttonSize=3.4, spacing="x", orientation="diag", columns=0, backgroundOpacity=-1},
+        buttons={minuteThreshold=100, hourThreshold=50, cooldownFontSize=500, keybindLabels=1},
+        general=7, highlight={style="nope", color={2,0,0,1}}}
+    Config.cleanProfile(profile)
+    A.equal(profile.bar.scale, 2); A.equal(profile.bar.buttonSize, 24); A.equal(profile.bar.spacing, 4)
+    A.equal(profile.bar.orientation, "horizontal"); A.equal(profile.bar.columns, 1); A.equal(profile.bar.backgroundOpacity, 0)
+    A.equal(profile.buttons.cooldownFontSize, 48); A.equal(profile.buttons.keybindLabels, "off")
+    A.equal(profile.general.showActionBar, true); A.equal(profile.highlight.style, "pixel")
+    A.deep(profile.highlight.color, {0.96, 0.80, 0.20, 1})
+    A.equal(profile.buttons.hourThreshold, 3600, "hour clamped into range")
+    A.equal(profile.buttons.minuteThreshold, 100)
+    A.equal(profile.pageCount, 1); A.equal(#profile.pages[1], 15); A.equal(type(profile.id), "string")
+    A.equal(#profile.id > 10, true)
+end)
+A.test("defaults match the spec table", function()
+    local d = Config.defaults.profile
+    A.equal(d.general.showActionBar, true); A.equal(d.general.alwaysShowButtons, false)
+    A.equal(d.general.rightClickAction, "menu"); A.equal(d.bar.scale, 1); A.equal(d.bar.buttonSize, 40)
+    A.equal(d.bar.spacing, 4); A.equal(d.bar.columns, 5); A.equal(d.bar.mirrorControllerLayout, true)
+    A.equal(d.bar.backgroundOpacity, 0.65); A.equal(d.buttons.minuteThreshold, 90); A.equal(d.buttons.hourThreshold, 5400)
+    A.equal(d.buttons.cooldownFontSize, 19); A.equal(d.buttons.showGCD, false); A.equal(d.buttons.keybindLabels, "off")
+    local c = Config.defaults.char
+    A.deep(c.barPosition, {point="CENTER", relativePoint="CENTER", x=0, y=0}); A.equal(c.minimap.minimapPos, 225)
+    A.equal(Config.defaults.global.tutorial.completed, false)
+    for k in pairs(d.bar.visibility) do error("visibility must stay empty (managed elsewhere): " .. k) end
+end)
+A.test("character and global validation", function()
+    local char = {currentPage=9, barPosition={point="NOPE", relativePoint="CENTER", x=1, y=2}, minimap={hide="x", minimapPos=999}, nextKey=5}
+    Config.cleanChar(char, 3)
+    A.equal(char.currentPage, 3); A.deep(char.barPosition, {point="CENTER", relativePoint="CENTER", x=0, y=0})
+    A.equal(char.minimap.hide, false); A.equal(char.minimap.minimapPos, 225); A.equal(char.nextKey, "")
+    local g = {exportEnabled=3, tutorial={completed=1, dismissed=false}}
+    Config.cleanGlobal(g); A.equal(g.exportEnabled, true); A.equal(g.tutorial.completed, false)
+end)
+A.test("account migration archives obsolete keys once and is idempotent", function()
+    local sv = {settings={estimates="on", logChat=true}, cooldownLearned={items={}}, probe={x=1}, ui={point="CENTER", relativePoint="CENTER", x=10, y=-20},
+        export={schema=1, slots={}}}
+    local global = {}
+    A.equal(Config.migrateAccount(sv, global), "migrated")
+    A.equal(sv.settings, nil); A.equal(sv.cooldownLearned, nil); A.equal(sv.probe, nil); A.equal(sv.ui, nil); A.equal(sv.export, nil)
+    A.equal(sv.schemaVersion, 2); A.equal(global.archive.account.settings.estimates, "on")
+    A.equal(global.archive.account.ui.x, 10)
+    local snapshot = Config.plainCopy(global)
+    A.equal(Config.migrateAccount(sv, global), "current"); A.deep(global, snapshot)
+    A.equal(Config.migrateAccount({schemaVersion=3}, {}), "future")
+end)
+A.test("character migration: slots kept, readouts archived, ids/pages/position preserved, idempotent", function()
+    local legacy = {profileId="legacy-id", revision=7, currentPage=2, pages={
+        {slots={[1]={kind="spell", id=5, pinned=true}, [2]={kind="item", id=9}}, readouts={{kind="money"}, {kind="currency", currencyID=3}, {kind="empty"}}},
+        {slots={[15]={kind="item", id=77}}, readouts={}}}}
+    local profile, char = Core.ensurePages({}), {}
+    local global = {archive={account={ui={point="CENTER", relativePoint="CENTER", x=5, y=6}}}}
+    A.equal(Config.migrateCharacter(legacy, profile, char, global), true)
+    A.equal(profile.id, "legacy-id"); A.equal(profile.pageCount, 2); A.equal(char.currentPage, 2)
+    A.deep(profile.pages[1][1], {kind="spell", id=5, pinned=true}); A.deep(profile.pages[2][15], {kind="item", id=77})
+    for p=1,2 do for i=1,15 do A.equal(profile.pages[p][i].kind == "money" or profile.pages[p][i].kind == "currency", false) end end
+    A.deep(char.barPosition, {point="CENTER", relativePoint="CENTER", x=5, y=6})
+    A.equal(legacy.schemaVersion, 2); A.equal(legacy.pages, nil); A.equal(legacy.archive.revision, 7)
+    A.equal(legacy.archive.pages[1].readouts[2].currencyID, 3, "rollback archive keeps removed readouts")
+    local snapshot = Config.plainCopy({profile, char, legacy})
+    A.equal(Config.migrateCharacter(legacy, profile, char, global), false)
+    A.deep(Config.plainCopy({profile, char, legacy}), snapshot)
+    A.equal(Config.migrateCharacter({schemaVersion=5}, profile, char, global), "future")
+    local fresh = {}
+    A.equal(Config.migrateCharacter(fresh, Core.ensurePages({}), {}, {}), true); A.equal(fresh.schemaVersion, 2)
 end)

@@ -1,94 +1,133 @@
 local addonName, ns = ...
--- Pure Lua 5.1. Saved data is untrusted structurally; live secrets are filtered by the adapter.
+-- Pure Lua 5.1: no game calls. Saved data is untrusted structurally; live secrets are filtered
+-- by the Game adapter before anything reaches Core.
 local Core = {}
 ns.Core = Core
 local keys = {"1","2","3","4","5","6","7","8","9","0","-","=","[","]","\\"}
+Core.SLOTS, Core.MAX_PAGES = 15, 10
 local function number(v) return type(v)=="number" and v==v and v > -math.huge and v < math.huge end
 local function integer(v) return number(v) and v==math.floor(v) end
 local function id(v) return integer(v) and v>0 end
+Core.number, Core.integer, Core.id = number, integer, id
 local function tableOrEmpty(v) if type(v)=="table" then return v end; return {} end
-local function slot(value, readout)
+
+-- A slot is {kind="empty"} | {kind="spell",id=n,pinned=true?} | {kind="item",id=n}. Anything else -> nil.
+function Core.slot(value)
     if type(value)~="table" then return nil end
     if value.kind=="empty" then return {kind="empty"} end
-    if readout and value.kind=="money" then return {kind="money"} end
-    if readout and value.kind=="currency" then
-        if id(value.currencyID) then return {kind="currency", currencyID=value.currencyID} end
-        return nil
-    end
-    if value.kind=="item" then
-        local field = readout and "itemID" or "id"
-        if id(value[field]) then return {kind="item", [field]=value[field]} end
-    elseif not readout and value.kind=="spell" and id(value.id) then
+    if value.kind=="item" and id(value.id) then return {kind="item", id=value.id} end
+    if value.kind=="spell" and id(value.id) then
         -- pinned=true: cast this exact rank by ID; otherwise cast by name (highest known rank).
-        if value.pinned==true then return {kind="spell",id=value.id,pinned=true} end
-        return {kind="spell",id=value.id}
+        if value.pinned==true then return {kind="spell", id=value.id, pinned=true} end
+        return {kind="spell", id=value.id}
     end
 end
-local function page(value)
-    value = tableOrEmpty(value)
-    local result = {slots={},readouts={}}
-    for _, area in ipairs({"slots","readouts"}) do
-        local input = tableOrEmpty(value[area])
-        for i=1,area=="slots" and 15 or 3 do
-            result[area][i] = slot(input[i],area=="readouts") or {kind="empty"}
-        end
-    end
-    return result
+function Core.newPage()
+    local page = {}
+    for i=1,15 do page[i] = {kind="empty"} end
+    return page
 end
--- Compact money text: 12g 34s 56c (zero parts dropped except a lone 0c).
-function Core.formatMoney(copper)
-    if not integer(copper) or copper<0 then return "?" end
-    local g, sv, c = math.floor(copper/10000), math.floor(copper/100)%100, copper%100
-    local out = {}
-    if g>0 then out[#out+1]=g .. "g" end
-    if sv>0 then out[#out+1]=sv .. "s" end
-    if c>0 or #out==0 then out[#out+1]=c .. "c" end
-    return table.concat(out," ")
+-- Sanitizes one stored page into exactly 15 explicit slots (never compacts).
+function Core.cleanPage(value)
+    local input, page = tableOrEmpty(value), {}
+    for i=1,15 do page[i] = Core.slot(input[i]) or {kind="empty"} end
+    return page
+end
+-- Makes profile.pageCount (1..10) and profile.pages consistent. Extra stored pages beyond the count
+-- are kept in the archive by the caller (Core.setPageCount), never silently dropped here.
+function Core.ensurePages(profile)
+    local count = profile.pageCount
+    if not integer(count) then count = 1 end
+    if type(profile.pages)~="table" then profile.pages = {} end
+    local highest = 1
+    for i=1,10 do if type(profile.pages[i])=="table" then highest = i end end
+    if count < highest and not integer(profile.pageCount) then count = highest end
+    count = math.max(1, math.min(10, count))
+    profile.pageCount = count
+    for i=1,count do profile.pages[i] = Core.cleanPage(profile.pages[i]) end
+    for i=count+1, 10 do profile.pages[i] = nil end
+    if type(profile.archivedPages)~="table" then profile.archivedPages = {} end
+    return profile
+end
+function Core.sameSlot(a, b)
+    if type(a)~="table" or type(b)~="table" then return false end
+    if a.kind~=b.kind then return false end
+    if a.kind=="empty" then return true end
+    return a.id==b.id and (a.pinned==true)==(b.pinned==true)
 end
 function Core.chord(index)
     if integer(index) and index>=1 and index<=15 then return "ALT-CTRL-SHIFT-" .. keys[index] end
 end
-function Core.recover(saved, profileId)
-    saved = tableOrEmpty(saved)
-    local result = {profileId=profileId,revision=0,currentPage=1,pages={}}
-    if type(saved.profileId)=="string" and saved.profileId~="" then result.profileId=saved.profileId end
-    if type(result.profileId)~="string" or result.profileId=="" then result.profileId="uninitialized" end
-    if integer(saved.revision) and saved.revision>=0 then result.revision=saved.revision end
-    local pages = tableOrEmpty(saved.pages)
-    local count = 1
-    for i=1,10 do if type(pages[i])=="table" then count=i end end
-    for i=1,count do result.pages[i]=page(pages[i]) end
-    if integer(saved.currentPage) then result.currentPage=math.max(1,math.min(count,saved.currentPage)) end
-    return result
+function Core.chordKey(index)
+    local chord = Core.chord(index)
+    return chord and string.match(chord,"^ALT%-CTRL%-SHIFT%-(.+)$")
 end
-function Core.assign(state, area, index, value, inCombat)
-    if inCombat then return state,false,"combat" end
-    if area~="slots" and area~="readouts" then return state,false,"area" end
-    local limit = area=="slots" and 15 or 3
-    if not integer(index) or index<1 or index>limit then return state,false,"index" end
-    local normalized = slot(value,area=="readouts")
-    if not normalized then return state,false,"slot" end
-    local result = Core.recover(state,state.profileId)
-    result.pages[result.currentPage][area][index]=normalized
-    result.revision=result.revision+1
-    return result,true
+-- Sets one slot of one page. Returns ok, changed, reason. No-ops report changed=false.
+function Core.setSlot(profile, page, index, value, inCombat)
+    if inCombat then return false,false,"combat" end
+    if not integer(index) or index<1 or index>15 then return false,false,"index" end
+    if not integer(page) or type(profile.pages)~="table" or type(profile.pages[page])~="table" then return false,false,"page" end
+    local normalized = Core.slot(value)
+    if not normalized then return false,false,"slot" end
+    local current = profile.pages[page][index]
+    if Core.sameSlot(current, normalized) then return true,false end
+    profile.pages[page][index] = normalized
+    return true,true
 end
-function Core.page(state, action, inCombat)
-    if inCombat then return state,false,"combat" end
-    local target = state.currentPage
-    if action=="next" then
-        if target>=10 then return state,false,"limit" end
-        target=target+1
-    elseif action=="prev" then target=math.max(1,target-1)
-    elseif action=="home" then target=1
-    else return state,false,"action" end
-    if target==state.currentPage then return state,true end
-    local result = Core.recover(state,state.profileId)
-    if not result.pages[target] then result.pages[target]=page() end
-    result.currentPage=target
-    result.revision=result.revision+1
-    return result,true
+-- Swap/move for an internal drag: occupied destination swaps, empty destination moves.
+function Core.moveSlot(profile, page, from, to, inCombat)
+    if inCombat then return false,false,"combat" end
+    if not integer(from) or not integer(to) or from<1 or from>15 or to<1 or to>15 then return false,false,"index" end
+    if from==to then return true,false end
+    local p = profile.pages and profile.pages[page]
+    if type(p)~="table" then return false,false,"page" end
+    p[from], p[to] = p[to], p[from]
+    return true,true
 end
+-- Page navigation with wrap-around. Returns the new page number.
+function Core.turn(current, count, action)
+    if not integer(count) or count<1 then count = 1 end
+    if not integer(current) or current<1 or current>count then current = 1 end
+    if action=="next" then return current % count + 1 end
+    if action=="prev" then return (current-2) % count + 1 end
+    if action=="home" then return 1 end
+    return current
+end
+-- Grows (empty pages, restoring archived ones only on request) or shrinks (archiving the removed
+-- pages). Returns the list of removed page numbers. Confirmation is the caller's job.
+function Core.setPageCount(profile, n)
+    Core.ensurePages(profile)
+    if not integer(n) then return {} end
+    n = math.max(1, math.min(10, n))
+    local removed = {}
+    local old = profile.pageCount
+    if n < old then
+        for i=n+1, old do
+            profile.archivedPages[#profile.archivedPages+1] = {page=i, slots=profile.pages[i]}
+            profile.pages[i] = nil
+            removed[#removed+1] = i
+        end
+    else
+        for i=old+1, n do profile.pages[i] = Core.newPage() end
+    end
+    profile.pageCount = n
+    return removed
+end
+function Core.restoreArchive(profile)
+    Core.ensurePages(profile)
+    local archive, restored = profile.archivedPages, 0
+    table.sort(archive, function(a, b) return (a.page or 0) < (b.page or 0) end)
+    for _, entry in ipairs(archive) do
+        if profile.pageCount < 10 then
+            profile.pageCount = profile.pageCount + 1
+            profile.pages[profile.pageCount] = Core.cleanPage(entry.slots)
+            restored = restored + 1
+        end
+    end
+    profile.archivedPages = {}
+    return restored
+end
+
 local function never() return false end
 -- Last resort before Core: deep copy keeping only plain strings, booleans, finite numbers and
 -- tables with plain string/number keys. The predicate runs before any other use of a value.
@@ -135,62 +174,16 @@ function Core.normalizeCursor(cursor, issecret)
     end
     return nil,"unsupported"
 end
--- Converts a normalized key value to the shape an area accepts (readouts: items only).
-function Core.forArea(value, area)
-    if type(value)~="table" then return nil,"slot" end
-    if area=="readouts" then
-        if value.kind=="item" and id(value.id) then return {kind="item",itemID=value.id} end
-        if value.kind=="empty" then return {kind="empty"} end
-        if value.kind=="money" then return {kind="money"} end
-        if value.kind=="currency" and id(value.currencyID) then return {kind="currency",currencyID=value.currencyID} end
-        return nil,"items-only"
-    end
-    return value
-end
 function Core.identity(value)
     if type(value)~="table" then return nil end
-    local itemID = value.id or value.itemID
-    if (value.kind=="spell" or value.kind=="item") and id(itemID) then return value.kind .. ":" .. itemID end
+    if (value.kind=="spell" or value.kind=="item") and id(value.id) then return value.kind .. ":" .. value.id end
 end
-local function currentPage(state)
-    return type(state)=="table" and type(state.pages)=="table" and state.pages[state.currentPage] or nil
-end
--- Slots on the CURRENT page whose identity is kind:id now. Late metadata callbacks refresh only these.
-function Core.findSlots(state, kind, itemID)
-    local found, page, wanted = {}, currentPage(state), Core.identity({kind=kind,id=itemID})
-    if not page or not wanted then return found end
-    for _, area in ipairs({"slots","readouts"}) do
-        for i, value in ipairs(page[area] or {}) do
-            if Core.identity(value)==wanted then found[#found+1]={area=area,index=i} end
-        end
-    end
+-- Slots on a page whose identity is kind:id (late metadata callbacks refresh only these).
+function Core.findSlots(page, kind, itemID)
+    local found, wanted = {}, Core.identity({kind=kind,id=itemID})
+    if type(page)~="table" or not wanted then return found end
+    for i=1,15 do if Core.identity(page[i])==wanted then found[#found+1]=i end end
     return found
-end
--- True if any page (slots or readouts) still holds this item.
-function Core.itemReferenced(state, itemID)
-    if type(state)~="table" or type(state.pages)~="table" then return false end
-    local wanted = Core.identity({kind="item",id=itemID})
-    for _, page in ipairs(state.pages) do
-        for _, area in ipairs({"slots","readouts"}) do
-            for _, value in ipairs(page[area] or {}) do
-                if Core.identity(value)==wanted then return true end
-            end
-        end
-    end
-    return false
-end
--- Unique ascending item IDs on the current page (keys and readouts).
-function Core.pageItems(state)
-    local page, seen, list = currentPage(state), {}, {}
-    if not page then return list end
-    for _, area in ipairs({"slots","readouts"}) do
-        for _, value in ipairs(page[area] or {}) do
-            local itemID = value.kind=="item" and (value.id or value.itemID)
-            if id(itemID) and not seen[itemID] then seen[itemID]=true; list[#list+1]=itemID end
-        end
-    end
-    table.sort(list)
-    return list
 end
 -- Secure attribute plan for one key slot. Keys are "*"-prefixed with button suffix 1, so held
 -- modifiers (the ALT-CTRL-SHIFT chord itself) cannot change the attribute lookup, and the binding
@@ -207,104 +200,32 @@ function Core.secureAttributes(value, spellName)
     end
     return {["*type1"]=false,["*spell1"]=false,["*item1"]=false}
 end
-function Core.chordKey(index)
-    local chord = Core.chord(index)
-    return chord and string.match(chord,"^ALT%-CTRL%-SHIFT%-(.+)$")
-end
-function Core.buildExport(state, now, issecret, providers, previous)
-    -- Rebuild allowlisted fields; only suspicious count/player reads may use prior values.
-    issecret = issecret or function() return false end
-    local function plain(v) if not issecret(v) then return v end end
-    local function record(v) v=plain(v); if type(v)=="table" then return v end; return {} end
-    providers=record(providers)
-    local player = record(providers.player)
-    local money, free = plain(player.moneyCopper), plain(player.freeBagSlots)
-    local stale = plain(providers.teardown)==true or (money==0 and free==0)
-    previous=record(previous)
-    local oldCounts, oldQuantity, oldMeta={}, {}, {}
-    if stale then
-        if plain(previous.profileId)==state.profileId then
-            for _, area in ipairs({"slots","readouts"}) do
-                for _, entry in pairs(record(previous[area])) do
-                    entry=record(entry)
-                    local itemID=plain(entry.id) or plain(entry.itemID)
-                    local count=plain(entry.count)
-                    local cid, qty=plain(entry.currencyID), plain(entry.quantity)
-                    if plain(entry.kind)=="currency" and id(cid) and integer(qty) and qty>=0 then oldQuantity[cid]=qty; oldMeta[cid]=entry end
-                    if plain(entry.kind)=="item" and id(itemID) and integer(count) and count>=0 then
-                        oldCounts[itemID]=count
-                    end
-                end
-            end
-            player=record(previous.player)
-        else player={} end
-        money, free=plain(player.moneyCopper),plain(player.freeBagSlots)
-    end
-    local items, spells = record(providers.items),record(providers.spells)
-    local currencies = record(providers.currencies)
-    local result = {schema=1,profileId=state.profileId,revision=state.revision,
-        page={index=state.currentPage,count=#state.pages},slots={},readouts={}}
-    if stale then result.countsStale=true end
-    local timestamp=plain(now)
-    if integer(timestamp) and timestamp>=0 then result.savedAt=timestamp end
-    local current=state.pages[state.currentPage]
-    for _, area in ipairs({"slots","readouts"}) do
-        for i, value in ipairs(current[area]) do
-            local out={kind=value.kind}
-            if value.kind=="money" then
-                -- Exact copper at save time; omitted when unknown (never a teardown zero: see stale above).
-                if integer(money) and money>=0 then out.copper=money end
-            elseif value.kind=="currency" then
-                out.currencyID=value.currencyID
-                local data=record(currencies[value.currencyID])
-                local name, icon, qty, maxQty = plain(data.name), plain(data.iconFileID), plain(data.quantity), plain(data.maxQuantity)
-                if stale then
-                    qty=oldQuantity[value.currencyID]
-                    local old=oldMeta[value.currencyID]
-                    if old then name=name or plain(old.name); icon=icon or plain(old.iconFileID); maxQty=maxQty or plain(old.maxQuantity) end
-                end
-                if type(name)=="string" and name~="" then out.name=name end
-                if id(icon) then out.iconFileID=icon end
-                if integer(qty) and qty>=0 then out.quantity=qty end
-                if integer(maxQty) and maxQty>0 then out.maxQuantity=maxQty end
-            elseif value.kind~="empty" then
-                local itemID = value.id or value.itemID
-                if area=="slots" then out.id=itemID; out.chord=Core.chord(i) else out.itemID=itemID end
-                local data=record((value.kind=="item" and items or spells)[itemID])
-                local name, icon = plain(data.name),plain(data.iconFileID)
-                if type(name)=="string" then out.name=name end
-                if id(icon) then out.iconFileID=icon end
-                if value.kind=="item" then
-                    local count, endsAt, source=plain(data.count),plain(data.endsAt),plain(data.source)
-                    if stale then count=oldCounts[itemID] end
-                    if integer(count) and count>=0 then out.count=count end
-                    if source=="game" or source=="est" then
-                        out.source=source
-                        if number(endsAt) and endsAt>=0 then out.endsAt=endsAt end
-                    elseif source=="used" then
-                        out.source=source  -- pressed, length unknown: no countdown claimed
-                    end
-                end
-                -- Known press-timer length for the controller plugin (never invented; spells too).
-                local secs, origin, pool = plain(data.cooldownSeconds), plain(data.cooldownSource), plain(data.poolKey)
-                local charges = plain(data.maxCharges)
-                if integer(charges) and charges>=2 and charges<=20 then out.maxCharges=charges end
-                local validOrigin = origin=="learned" or origin=="verified" or origin=="base" or origin=="category" or origin=="table"
-                if number(secs) and secs>1.5 and secs<=86400 and validOrigin and not out.maxCharges then
-                    out.cooldownSeconds=secs; out.cooldownSource=origin
-                    if plain(data.verified)==true then out.verified=true end
-                    local cat = plain(data.categorySeconds)
-                    if number(cat) and cat>1.5 and cat<=86400 then out.categorySeconds=cat end
-                    if type(pool)=="string" and #pool<=64 and string.match(pool,"^[%w_:]+$") then out.poolKey=pool end
-                end
-            end
-            result[area][i]=out
+
+-- Minimal controller export (schema 2): icons only. iconFor(slot) -> positive integer | nil.
+-- Empty -> {}; assigned and resolved -> {iconFileID=n}; assigned but unknown -> {unresolved=true}.
+function Core.buildExport(enabled, profileId, page, slots, iconFor)
+    local icons = {}
+    for i=1,15 do
+        local slot = type(slots)=="table" and slots[i] or nil
+        local entry = {}
+        if enabled and type(slot)=="table" and (slot.kind=="spell" or slot.kind=="item") then
+            local icon = iconFor and iconFor(slot)
+            if id(icon) then entry.iconFileID = icon else entry.unresolved = true end
         end
+        icons[i] = entry
     end
-    -- Optional ordinary player values (copper and free general bag slots); omitted when unknown.
-    local values
-    if integer(money) and money>=0 then values = {moneyCopper=money} end
-    if integer(free) and free>=0 then values = values or {}; values.freeBagSlots=free end
-    result.player = values
-    return result
+    if type(profileId)~="string" or profileId=="" then profileId = "uninitialized" end
+    if not integer(page) or page<1 or page>10 then page = 1 end
+    return {schemaVersion=2, enabled=enabled==true, profileId=profileId, page=page, icons=icons}
+end
+
+-- OmniCC-style remaining time text. Seconds below the minute threshold, minutes from it
+-- (ceil), hours from the hour threshold (ceil). r<=0 or non-finite -> nil (no text).
+function Core.formatRemaining(r, minuteAt, hourAt)
+    if not number(r) or r<=0 then return nil end
+    minuteAt = number(minuteAt) and minuteAt or 90
+    hourAt = number(hourAt) and hourAt or 5400
+    if r >= hourAt then return math.ceil(r/3600) .. "h" end
+    if r >= minuteAt then return math.ceil(r/60) .. "m" end
+    return tostring(math.ceil(r))
 end

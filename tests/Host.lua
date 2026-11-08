@@ -16,13 +16,13 @@ local noop = function() end
 function ns.host(options)
     options = options or {}
     local h = {frames={}, messages={}, combat=false, time=100, overrides={}, ordinary={},
-        cursor={}, keyDown=true, items={}, spells={}, spellCd={}, charges={}, requests={}, timers={}, money=5000,
+        cursor={}, keyDown=true, items={}, spells={}, spellCd={}, charges={}, requests={}, timers={}, 
         unknownEvents=options.unknownEvents or {}, protectedCalls=0, setBindingCalls=0, cleared=0,
         blocked=0, blockedNames={}, internalErrors=0}
     ns.hosts[#ns.hosts+1] = h
     local env = {type=type,pairs=pairs,ipairs=ipairs,tostring=tostring,tonumber=tonumber,select=select,
         math=math,string=string,table=table,setmetatable=setmetatable,pcall=pcall,unpack=unpack,next=next,
-        error=error,rawequal=rawequal,
+        error=error,rawequal=rawequal,assert=assert,
         print=function(msg)
             h.messages[#h.messages+1]=msg
             if string.find(tostring(msg), "internal error", 1, true) then h.internalErrors=h.internalErrors+1 end
@@ -105,7 +105,6 @@ function ns.host(options)
     env.GetTime = function() return h.time end
     env.GetServerTime = function() return 1000000 + math.floor(h.time) end
     env.GetCVarBool = function(name) if name=="ActionButtonUseKeyDown" then return h.keyDown end end
-    env.GetMoney = function() return h.money end
     env.GetCursorInfo = function() return unpack(h.cursor) end
     env.ClearCursor = function() h.cursor={} end
     env.SetOverrideBindingClick = function(owner, priority, key, button, mouse)
@@ -139,52 +138,83 @@ function ns.host(options)
         end,
         RequestLoadItemDataByID=function(id) h.requests[#h.requests+1]="item:" .. id end,
     }
-    -- Currency list model: h.currencies = array of CurrencyInfo-like rows (headers collapse their
-    -- children; the fake honours ExpandCurrencyList so tests can prove the collapse state is restored).
-    h.currencies = options.currencies or {}
-    h.expandCalls = {}
-    local function visible()
-        local rows, hidden = {}, false
-        for i, c in ipairs(h.currencies) do
-            if c.isHeader then rows[#rows+1] = c; hidden = c.isHeaderExpanded == false
-            elseif not hidden then rows[#rows+1] = c end
-        end
-        return rows
-    end
-    env.C_CurrencyInfo = {
-        GetCurrencyListSize = function() return #visible() end,
-        GetCurrencyListInfo = function(i) local c = visible()[i]; if c then return ns.copy(c) end end,
-        GetCurrencyInfo = function(id) for _, c in ipairs(h.currencies) do if c.currencyID == id and not c.isHeader then return ns.copy(c) end end end,
-        ExpandCurrencyList = function(i, expand)
-            h.expandCalls[#h.expandCalls+1] = {i, expand}
-            local c = visible()[i]; if c then c.isHeaderExpanded = expand end
-        end,
+    h.bags = options.bags or {}   -- h.bags[bag][slot] = {itemID=, stackCount=}
+    env.C_Container = {
+        GetContainerNumSlots=function(bag) local b=h.bags[bag]; return b and b.size or 0 end,
+        GetContainerItemInfo=function(bag, slot) local b=h.bags[bag]; local i=b and b[slot]; if i then return {itemID=i.itemID, stackCount=i.stackCount} end end,
     }
-    env.C_Container = {GetContainerNumFreeSlots=function(bag) return bag==0 and 7 or 2, 0 end}
     env.C_Timer = {After=function(delay, fn) h.timers[#h.timers+1]={delay=delay, fn=fn} end,
         NewTimer=function(delay, fn) local t={delay=delay, fn=fn}; function t:Cancel() self.cancelled=true end
             h.timers[#h.timers+1]=t; return t end}
     for k, v in pairs(options.env or {}) do env[k]=v end
     for _, k in ipairs(options.remove or {}) do env[k]=nil end
     env._G = env
+    -- Real Blizzard aliases (libraries use them); the addon itself does not.
+    env.tinsert, env.tremove, env.wipe = table.insert, table.remove, function(t) for k in pairs(t) do t[k]=nil end return t end
+    env.format, env.strmatch, env.strfind, env.strsub, env.strlen = string.format, string.match, string.find, string.sub, string.len
+    env.strlower, env.strupper, env.gsub, env.floor, env.ceil, env.max, env.min = string.lower, string.upper, string.gsub, math.floor, math.ceil, math.max, math.min
+    env.strlenutf8 = function(str) return #str end
+    env.getmetatable, env.rawget, env.rawset, env.xpcall = getmetatable, rawget, rawset, xpcall
+    env.geterrorhandler = function() return function(e) error(e, 0) end end
+    env.date, env.time, env.os = nil, nil, nil
+    env.UnitFactionGroup = function() return "Neutral" end
+    env.GetLocale = function() return "enUS" end
+    env.UnitClass = function() return "Druid", "DRUID" end
+    env.UnitRace = function() return "Night Elf", "NightElf" end
+    env.GetRealmName = function() return "TestRealm" end
+    env.UnitNameUnmodified = function() return options.name or "Tester" end
+    env.GetCurrentRegionName = function() return "US" end
+    env.GetCurrentRegion = function() return 1 end
+    env.ReloadUI = function() h.reloaded = (h.reloaded or 0) + 1 end
+    env.StaticPopupDialogs = {}
+    env.StaticPopup_Show = function(which, ...) h.popups[#h.popups+1] = {which=which, args={...}}; return {} end
+    h.popups = {}
     local allowed = {StreonorDockDB=true, StreonorDockCharDB=true, WOW_PROJECT_ID=true, GetBuildInfo=true,
         GetSpellBaseCooldown=true, NUM_BAG_SLOTS=true, C_SpellBook=true, Enum=true,
         SetOverrideBindingClick=true, ClearOverrideBindings=true, GetBindingAction=true, issecretvalue=true,
         C_Spell=true, C_Item=true, C_Container=true, C_Timer=true, GetCVarBool=true, GetServerTime=true,
         GetTime=true, GetMoney=true, GetCursorInfo=true, ClearCursor=true, GameTooltip=true,
-        LoggingChat=true, LoggingCombat=true, C_ChatInfo=true, C_CurrencyInfo=true}
+        LoggingChat=true, LoggingCombat=true, C_ChatInfo=true, C_CurrencyInfo=true, LibStub=true, UnitFactionGroup=true, GetLocale=true, UnitClass=true,
+        UnitRace=true, GetRealmName=true, UnitNameUnmodified=true, GetCurrentRegionName=true, GetCurrentRegion=true,
+        strlenutf8=true, RegionalUniqueNamesEnabled=true, StaticPopupDialogs=true, StaticPopup_Show=true,
+        MenuUtil=true, Settings=true, ReloadUI=true, _G=true, LibCustomGlow=true, UISpecialFrames=true,
+        SlashCmdList=true, geterrorhandler=true, xpcall=true, getmetatable=true, rawget=true, rawset=true,
+        C_Texture=true}
     setmetatable(env, {__index=function(_, key)
         if not allowed[key] then error("unexpected global " .. tostring(key), 2) end
     end})
     h.ns = {}
-    -- Load exactly what the TOC lists, in order. XML files: model the declared secure buttons
-    -- (created by the client at load time, even in combat).
+    -- Load exactly what the TOC lists, in order. Libs: a whitelist of the pure-Lua libraries is
+    -- loaded with a lenient environment (they read optional globals); everything else is strict.
+    local strictIndex = getmetatable(env).__index
+    local libWhitelist = {["LibStub.lua"]=true, ["CallbackHandler-1.0.lua"]=true, ["AceDB-3.0.lua"]=true,
+        ["AceConfigRegistry-3.0.lua"]=true}
+    local function runLua(path, lenient)
+        local chunk, err = loadfile(path)
+        A.equal(type(chunk), "function", err or path)
+        setfenv(chunk, env)
+        if lenient then getmetatable(env).__index = function() return nil end end
+        local ok, e = pcall(chunk, addonName, h.ns)
+        getmetatable(env).__index = strictIndex
+        if not ok then error(path .. ": " .. tostring(e), 0) end
+    end
+    local function loadXml(path, dir)
+        local xf = assert(io.open(path, "rb"), "cannot open " .. path); local xml = xf:read("*a"); xf:close()
+        xml = string.gsub(xml, "<!%-%-.-%-%->", "")
+        for kind, file in string.gmatch(xml, '<(%a+)%s+file%s*=%s*"([^"]+)"') do
+            file = string.gsub(file, "\\", "/")
+            if kind == "Script" and libWhitelist[string.match(file, "[^/]+$")] then runLua(dir .. file, true)
+            elseif kind == "Include" then
+                local sub = dir .. file
+                loadXml(sub, string.match(sub, "^(.*/)") or "")
+            end
+        end
+    end
     local toc = io.open("src/StreonorDock/StreonorDock.toc", "rb"); local text = toc:read("*a"); toc:close()
-    for line in string.gmatch(text, "[^\r\n]+") do
-        if string.match(line, "%.lua$") then
-            local chunk, err = loadfile("src/StreonorDock/" .. line)
-            A.equal(type(chunk), "function", err or line)
-            setfenv(chunk, env); chunk(addonName, h.ns)
+    for line in string.gmatch(text, "[^%c]+") do
+        local path = string.gsub(line, "\\", "/")
+        if string.match(line, "%.lua$") then runLua("src/StreonorDock/" .. path)
+        elseif string.match(line, "^Libs.*%.xml$") then loadXml("src/StreonorDock/" .. path, "src/StreonorDock/Libs/")
         elseif string.match(line, "%.xml$") then
             local xf = io.open("src/StreonorDock/" .. line, "rb"); local xml = xf:read("*a"); xf:close()
             for name, inherits in string.gmatch(xml, '<Button name="([%w_]+)" inherits="([%w_]+)"/>') do
@@ -195,13 +225,12 @@ function ns.host(options)
             end
         end
     end
-    for _, f in ipairs(h.frames) do if f.scripts.OnEvent then h.eventFrame = f end end
+    for _, f in ipairs(h.frames) do if f.scripts.OnEvent and f.events.ADDON_LOADED then h.eventFrame = f end end
     function h.created() local n=0; for _, f in ipairs(h.frames) do if not rawget(f,"xml") then n=n+1 end end; return n end
     function h.event(name, ...) h.eventFrame.scripts.OnEvent(h.eventFrame, name, ...) end
     function h.slash(text) env.SlashCmdList.STREONORDOCK(text) end
     function h.button(i) return h.named("StreonorDockSlot" .. i) end
     function h.named(name) for _, f in ipairs(h.frames) do if f.name==name then return f end end end
-    function h.editor(area, index) for _, f in ipairs(h.frames) do if f.area==area and f.index==index then return f end end end
     -- Secure-click simulator. Default: the client honours RegisterForClicks and the template acts only on
     -- the edge named by useOnKeyDown. h.ignoreRegistration: binding delivers BOTH edges regardless of
     -- registration. h.templateIgnoresEdge: the template acts on any edge it receives (worst case).

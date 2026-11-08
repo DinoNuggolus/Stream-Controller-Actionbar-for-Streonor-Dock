@@ -1,0 +1,133 @@
+local addonName, ns = ...
+-- WoW data adapter. Every game read goes through here, is guarded with issecretvalue BEFORE any
+-- comparison, arithmetic or storage, and only plain values leave this module.
+local Game = {}
+ns.Game = Game
+local requested = {spell={}, item={}}   -- metadata load requests in flight (dedupe)
+local failed = {spell={}, item={}}      -- loads that reported failure this session
+local attempts = {spell={}, item={}}    -- requests per ID this session (capped: no request loops)
+Game.MAX_REQUESTS = 3
+
+function Game.issecret(value)
+    if type(issecretvalue)~="function" then return false end
+    local ok, secret = pcall(issecretvalue, value)
+    -- If the predicate itself fails, treat the value as secret (fail closed).
+    return not ok or secret==true
+end
+local issecret = Game.issecret
+local function plain(v) if not issecret(v) then return v end end
+local function finite(v)
+    v = plain(v)
+    if type(v)=="number" and v==v and v>-math.huge and v<math.huge then return v end
+end
+local function positiveInteger(v)
+    v = finite(v)
+    if v and v>0 and v==math.floor(v) then return v end
+end
+local function call(fn, ...)
+    if type(fn)~="function" then return false end
+    return pcall(fn, ...)
+end
+local function lib(name)
+    local t = _G[name]
+    if type(t)=="table" then return t end
+    return {}
+end
+Game.plain, Game.finite, Game.positiveInteger, Game.call, Game.lib = plain, finite, positiveInteger, call, lib
+function Game.Now() return finite((type(GetTime)=="function") and GetTime() or nil) end
+
+local function request(kind, itemID)
+    if requested[kind][itemID] or failed[kind][itemID] then return end
+    if (attempts[kind][itemID] or 0)>=Game.MAX_REQUESTS then return end
+    local fn = kind=="spell" and lib("C_Spell").RequestLoadSpellData or lib("C_Item").RequestLoadItemDataByID
+    attempts[kind][itemID]=(attempts[kind][itemID] or 0)+1
+    if call(fn, itemID) then requested[kind][itemID]=true end
+end
+
+-- name, iconFileID (each plain or nil). Missing data triggers one load request.
+function Game.SpellMeta(spellID)
+    if not positiveInteger(spellID) then return nil end
+    local C_Spell = lib("C_Spell")
+    local name, icon
+    local ok, info = call(C_Spell.GetSpellInfo, spellID)
+    info = ok and plain(info) or nil
+    if type(info)=="table" then
+        name = plain(info.name); icon = positiveInteger(info.iconID)
+    end
+    if not icon then
+        local okTexture, texture = call(C_Spell.GetSpellTexture, spellID)
+        if okTexture then icon = positiveInteger(texture) end
+    end
+    if type(name)~="string" or name=="" then name=nil end
+    if not name or not icon then request("spell", spellID) end
+    return name, icon
+end
+function Game.ItemMeta(itemID)
+    if not positiveInteger(itemID) then return nil end
+    local C_Item = lib("C_Item")
+    local name, icon
+    local ok, value = call(C_Item.GetItemIconByID, itemID)
+    if ok then icon = positiveInteger(value) end
+    ok, value = call(C_Item.GetItemNameByID, itemID)
+    if ok then name = plain(value) end
+    if type(name)~="string" or name=="" then
+        local okInfo, infoName = call(C_Item.GetItemInfo, itemID)
+        name = okInfo and plain(infoName) or nil
+    end
+    if type(name)~="string" or name=="" then name=nil end
+    if not name or not icon then request("item", itemID) end
+    return name, icon
+end
+-- Icon (positive integer or nil) for a stored slot.
+function Game.SlotIcon(slot)
+    if type(slot)~="table" then return nil end
+    if slot.kind=="spell" then local _, icon = Game.SpellMeta(slot.id); return icon end
+    if slot.kind=="item" then local _, icon = Game.ItemMeta(slot.id); return icon end
+end
+-- Spellbook fallback when GetCursorInfo gives no spell ID:
+-- C_SpellBook.GetSpellBookItemType(slot, bank) -> itemType, actionID; spells only.
+function Game.ResolveSpellbookSpell(slot, bookType)
+    local book, enum = lib("C_SpellBook"), lib("Enum")
+    local banks, types = type(enum.SpellBookSpellBank)=="table" and enum.SpellBookSpellBank or {},
+        type(enum.SpellBookItemType)=="table" and enum.SpellBookItemType or {}
+    slot = positiveInteger(slot)
+    if not slot or banks.Player==nil or types.Spell==nil or issecret(bookType) then return nil end
+    if bookType=="pet" or (bookType~=nil and bookType==banks.Pet) then return nil end
+    local ok, itemType, actionID = call(book.GetSpellBookItemType, slot, banks.Player)
+    if ok and not issecret(itemType) and itemType==types.Spell then return positiveInteger(actionID) end
+end
+-- True when a higher rank of this spell is known (decided once, at assignment time; the slot is
+-- then pinned to this exact rank by ID). Unknown/unavailable -> false (cast by name = top rank).
+function Game.IsLowRank(spellID)
+    local book = lib("C_SpellBook")
+    if not positiveInteger(spellID) then return false end
+    local ok, slot, bank = call(book.FindSpellBookSlotForSpell, spellID, true)
+    if not ok or issecret(slot) or issecret(bank) or slot==nil then return false end
+    local okRank, low = call(book.IsSpellBookItemLowRank, slot, bank)
+    return okRank and not issecret(low) and low==true
+end
+function Game.MetaFailed(kind, itemID) return failed[kind] and failed[kind][itemID] or false end
+-- Late SPELL_DATA_LOAD_RESULT / ITEM_DATA_LOAD_RESULT. Results for IDs we did not request are ignored.
+-- Returns true when the result belongs to us.
+function Game.OnDataLoaded(kind, itemID, success)
+    itemID = positiveInteger(itemID)
+    if not itemID or not requested[kind] or not requested[kind][itemID] then return false end
+    requested[kind][itemID]=nil
+    if plain(success)==false then failed[kind][itemID]=true end
+    return true
+end
+function Game.ForgetRequests()
+    for _, kind in ipairs({"spell","item"}) do requested[kind], failed[kind], attempts[kind] = {}, {}, {} end
+end
+-- Carried count of an item across bags; nil when unreadable. Zero is a real count.
+function Game.ItemCount(itemID)
+    if not positiveInteger(itemID) then return nil end
+    local ok, count = call(lib("C_Item").GetItemCount, itemID)
+    count = ok and finite(count) or nil
+    if count and count>=0 and count==math.floor(count) then return count end
+end
+function Game.Build()
+    if type(GetBuildInfo)~="function" then return nil end
+    local ok, version, build = pcall(GetBuildInfo)
+    if ok and type(plain(version))=="string" and type(plain(build))=="string" then return version .. "." .. build end
+end

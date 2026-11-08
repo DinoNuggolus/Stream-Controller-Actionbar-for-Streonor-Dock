@@ -1,19 +1,19 @@
 ## Interface: 16001
 ## Title: StreonorDock
-## Notes: Streonor S15 controller dock: 15 chord keys, pages, item readouts, saved snapshot
+## Notes: Streonor S15 controller dock: 15 chord keys, optional action bar, pages, icon export
 ## Author: DinoNuggolus
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: StreonorDockDB
 ## SavedVariablesPerCharacter: StreonorDockCharDB
 ## Category: Action Bars
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
 
+Libs\Libs.xml
 Core.lua
-CooldownData.lua
-Cooldown.lua
-Panel.lua
+Layout.lua
+Config.lua
+Game.lua
 Slots.xml
 Secure.lua
 Export.lua
 Init.lua
-

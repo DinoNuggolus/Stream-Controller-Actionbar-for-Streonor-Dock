@@ -10,9 +10,7 @@ ns.load = load
 load("tests/Assert.lua")
 load("tests/Host.lua")
 load("tests/core_spec.lua")
-load("tests/cooldown_spec.lua")
 load("tests/init_spec.lua")
-load("tests/currency_spec.lua")
 local failures = 0
 -- Every fake host created by a test must end with zero blocked protected attempts and zero
 -- addon "internal error" messages, unless the test opted in (h.allowBlocked / h.allowInternal).
