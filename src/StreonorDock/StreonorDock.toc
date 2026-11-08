@@ -24,5 +24,6 @@ Display.lua
 Catalog.lua
 Assign.lua
 Minimap.lua
+Tutorial.lua
 Options.lua
 Init.lua

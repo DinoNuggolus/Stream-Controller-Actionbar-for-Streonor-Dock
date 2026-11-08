@@ -42,6 +42,13 @@ removed LCD/currency/timer design.
   the GCD flag/`ignoreGCD` argument excludes the GCD as hoped, the grey-swipe look, cooldown-complete behavior.
 * Header fade: header is a child of the wrapper, so effective alpha = header alpha x bar-wide fader alpha.
 
+### Phase 5 (built after the first deploy)
+* Visibility engine per ui-spec section 11 (Visibility.lua), skin presets, header fade, tutorial (Tutorial.lua).
+* Flying: EnhanceQoL only calls `IsFlying()` on demand, so no takeoff/landing event is known; the condition is best
+  effort and the Visibility page says so.
+* Settings dropdown: AceGUI's multiselect "Dropdown" (checkbox list; closes on outside click). Its closed text is
+  Ace's own, not the spec's "3 conditions: ..." string, so that summary is shown on a line below it.
+
 ### Not built (by request)
 Visibility-conditions engine, tutorial tips. `Bar.SetFadeAlpha(alpha)` is the hook; Settings > Bar > Visibility is
 an empty placeholder page.

@@ -163,6 +163,7 @@ function handlers.PLAYER_ENTERING_WORLD()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
     if ns.Visibility then ns.Safe("visibility", ns.Visibility.Reseed) end
+    if ns.Tutorial then ns.Safe("tutorial", ns.Tutorial.WorldEntered) end
     if ns.Display then ns.Display.CooldownsChanged() end
     ns.Export.EnteringWorld()
 end
@@ -172,6 +173,7 @@ function handlers.PLAYER_REGEN_ENABLED()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
     if ns.Visibility then ns.Safe("visibility", ns.Visibility.CombatChanged, false) end
+    if ns.Tutorial then ns.Safe("tutorial resume", ns.Tutorial.Resume) end
     if ns.Bar then ns.Safe("bar combat end", ns.Bar.CombatEnded) end
     if ns.Assign then ns.Safe("assign combat end", ns.Assign.CombatEnded) end
     ns.Export.MarkDirty()
@@ -179,6 +181,7 @@ end
 function handlers.PLAYER_REGEN_DISABLED()
     if not loaded then return end
     if ns.Visibility then ns.Safe("visibility", ns.Visibility.CombatChanged, true) end
+    if ns.Tutorial then ns.Safe("tutorial suspend", ns.Tutorial.Suspend) end
     if ns.Assign then ns.Safe("assign combat", ns.Assign.CombatStarted) end
     if ns.Bar then ns.Safe("bar combat", ns.Bar.CombatStarted) end
 end

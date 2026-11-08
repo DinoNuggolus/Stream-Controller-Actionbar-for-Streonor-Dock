@@ -35,7 +35,7 @@ Config.defaults = {
     },
     global = {
         exportEnabled = true,
-        tutorial = {version=1, completed=false, dismissed=false},
+        tutorial = {seen=false, hidePopups=false, completed=false},
     },
 }
 
@@ -186,10 +186,15 @@ function Config.cleanChar(char, pageCount)
 end
 function Config.cleanGlobal(g)
     if type(rawget(g, "exportEnabled")) ~= "boolean" then g.exportEnabled = true end
+    local d = Config.defaults.global.tutorial
     local t = rawget(g, "tutorial")
-    if type(t)~="table" or type(t.completed)~="boolean" or type(t.dismissed)~="boolean" then
-        g.tutorial = plainCopy(Config.defaults.global.tutorial)
-    else t.version = 1 end
+    if type(t) ~= "table" then g.tutorial = plainCopy(d); return end
+    -- 0.3 builds stored {version, completed, dismissed}: dismissed means "hide popups". No version key:
+    -- the tutorial state is never reset by updates.
+    if type(t.hidePopups) ~= "boolean" then t.hidePopups = (t.dismissed == true) end
+    if type(t.seen) ~= "boolean" then t.seen = (t.completed == true) or (t.dismissed == true) end
+    if type(t.completed) ~= "boolean" then t.completed = false end
+    t.version, t.dismissed = nil, nil
 end
 
 function Config.newId()

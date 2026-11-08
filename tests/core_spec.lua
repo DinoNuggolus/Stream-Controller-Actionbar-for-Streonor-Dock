@@ -193,6 +193,11 @@ A.test("character and global validation", function()
     A.equal(char.minimap.hide, false); A.equal(char.minimap.minimapPos, 225); A.equal(char.nextKey, "")
     local g = {exportEnabled=3, tutorial={completed=1, dismissed=false}}
     Config.cleanGlobal(g); A.equal(g.exportEnabled, true); A.equal(g.tutorial.completed, false)
+    A.equal(g.tutorial.hidePopups, false); A.equal(g.tutorial.seen, false)
+    local old = {tutorial = {version = 1, completed = false, dismissed = true}}
+    Config.cleanGlobal(old); A.equal(old.tutorial.hidePopups, true); A.equal(old.tutorial.seen, true); A.equal(old.tutorial.version, nil)
+    local kept = {tutorial = {seen = true, hidePopups = true, completed = true}}
+    Config.cleanGlobal(kept); A.deep(kept.tutorial, {seen = true, hidePopups = true, completed = true})
 end)
 A.test("account migration archives obsolete keys once and is idempotent", function()
     local sv = {settings={estimates="on", logChat=true}, cooldownLearned={items={}}, probe={x=1}, ui={point="CENTER", relativePoint="CENTER", x=10, y=-20},

@@ -13,6 +13,44 @@ changes to update controller icons. The plugin never rewrites your device profil
 Chords: slot N = `ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \` (N = 1..15). One physical press is exactly one
 use attempt (the addon acts on the key-down edge only; no hold repeat, no second attempt on release).
 
+## S15 key placement (landscape)
+
+| Row | Dock Keys, left to right |
+|---|---|
+| Top | 11 12 13 14 15 |
+| Middle | 6 7 8 9 10 |
+| Bottom | 1 2 3 4 5 |
+
+Place them manually in the Streonor app; Dock Key N sends chord N. Mirror controller layout (Settings > Bar > Layout,
+default ON) draws the on-screen bar the same way. Single row / single column are explicit alternatives.
+
+## Install
+
+Copy the `StreonorDock` folder (everything needed, including `Libs/`, is inside it) to
+`World of Warcraft\_forever_\Interface\AddOns\`, or run `scripts\deploy.ps1 -Name StreonorDock` from the workspace.
+Interface 16001. Restart the client if the folder does not show up, `/reload` for updates. Plugin: copy
+`io.github.dinonuggolus.streonordock.sdPlugin` to the Streonor plugins folder (`scripts\deploy-plugin.ps1`) and restart Streonor.
+
+## Settings overview (`/sdock settings`, Interface > AddOns, or the cog)
+
+* **General:** show bar, always show buttons (off: empty slots are hidden while locked), padlock/cog, right-click
+  behavior, minimap button, tutorial replay and "hide tutorial popups".
+* **Bar:** *Layout* (mirror, row/column, columns/rows, grow, scale, size, spacing, position reset), *Appearance*
+  (Slate / Parchment-lite style, LibSharedMedia border/background/font pickers, opacity, header fade, glow style and
+  colour) and *Visibility*.
+* **Visibility:** base (faded) / visible opacity, fade in/out and delay, ANY/ALL, hide completely, and a checkbox
+  dropdown of conditions (mouseover, combat, target, hostile target, group, raid, instance, PvP, mounted, resting,
+  flying [best effort], casting, low health, modifier key). Mouseover raises opacity only when ticked.
+  Assignment mode always shows the bar fully.
+* **Buttons:** stack counts, tooltips, cooldown look and thresholds (seconds below 90 s, `2m`, `2h`), ready glow.
+* **Assignment:** pages (1-10, shrink archives), page keys. **Controller:** export switch, chord list, Reload UI.
+* **Profiles:** one profile per character by default (AceDB); copy/reset/choose. **Diagnostics / About.**
+
+## Tutorial
+
+A six-step callout tour starts once, on the first login after the addon is installed. X (or Escape) closes it and
+stores "hide tutorial popups" account-wide; addon updates never reset it. Replay: Settings > General.
+
 ## Using it
 
 * The bar is ON and centred on first run. Drag the thin header to move it (out of combat). Header: padlock
