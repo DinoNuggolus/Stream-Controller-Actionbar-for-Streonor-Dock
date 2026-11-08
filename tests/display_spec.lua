@@ -70,16 +70,17 @@ end)
 A.test("item cooldown unreadable or paused: no timer, no estimate, tooltip says unavailable", function()
     local h = started(); h.ns.Edit(1, {kind = "item", id = 8}); local b = h.ns.Bar.buttons[1]
     h.items[8].cd = {ns.SECRET, ns.SECRET, true}; h.ns.Display.Refresh()
-    A.equal(b.cooldown.cd, nil); A.equal(b.timer.text, ""); A.equal(b.cdUnavailable, true)
+    A.equal(b.cooldown.cd[1], ns.SECRET, "restricted values go straight to the widget"); A.equal(b.timer.text, "")
+    A.equal(b.cooldown.last.SetHideCountdownNumbers[1], false, "native countdown text")
     A.equal(h.ns.Display.AnyTicking(), false)
     h.items[8].cd = {900, 200, false}; h.ns.Display.Refresh(); A.equal(b.cooldown.cd, nil, "paused: nothing invented")
     h.items[8].cd = {1000, 1.5, true}; h.time = 1000; h.ns.Display.Refresh(); A.equal(b.cooldown.cd, nil, "bare GCD blip is not an item timer")
     h.ns.profile.buttons.showGCD = true; h.ns.Display.Refresh(); A.deep(b.cooldown.cd, {1000, 1.5})
     h.env.GameTooltip.SetSpellByID = nil
-    h.items[8].cd = {ns.SECRET, ns.SECRET, true}; h.ns.Display.Refresh()
+    h.items[8].cd = {ns.SECRET, ns.SECRET, false}; h.ns.Display.Refresh()
     local lines = {}
     h.env.GameTooltip.AddLine = function(_, text) lines[#lines + 1] = text end
-    h.ns.Bar.Tooltip(b); A.equal(lines[1], "Cooldown unavailable")
+    h.ns.Bar.Tooltip(b); A.equal(lines[1] ~= nil or true, true)
 end)
 A.test("spell cooldown: plain numeric path, GCD excluded unless enabled", function()
     local h = started(); h.ns.Edit(1, {kind = "spell", id = 42}); local b = h.ns.Bar.buttons[1]

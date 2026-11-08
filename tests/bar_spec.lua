@@ -189,3 +189,19 @@ A.test("minimap click routing", function()
     h.ns.Minimap.OnClick(nil, "LeftButton"); h.ns.Minimap.OnClick(nil, "RightButton")
     A.deep(calls, {"settings", "assign"})
 end)
+
+A.test("header fades to 5% away from the panel, full on hover, forced full while assigning, setting-controlled", function()
+    local h = host(); h.login(); local bar = h.ns.Bar
+    local header = bar.header
+    local function settle() if header.scripts.OnUpdate then header.scripts.OnUpdate(header, 5) end end
+    settle(); A.equal(header.alpha, 0.05)
+    h.fire(bar.buttons[1], "OnEnter"); settle(); A.equal(header.alpha, 1)
+    h.hoverAll = true; h.fire(bar.buttons[1], "OnLeave"); h.runTimers(); settle(); A.equal(header.alpha, 1, "still inside the panel")
+    h.hoverAll = false; h.fire(header, "OnLeave"); h.runTimers(); settle(); A.equal(header.alpha, 0.05)
+    h.ns.Assign.Unlock(); settle(); A.equal(header.alpha, 1, "forced visible while assigning")
+    h.ns.Assign.Lock(); settle(); A.equal(header.alpha, 0.05)
+    h.ns.profile.bar.headerFade = false; bar.UpdateHeaderFade(); settle(); A.equal(header.alpha, 1)
+    h.ns.profile.bar.headerFade = true; h.ns.profile.bar.headerFadeDuration = 0; bar.UpdateHeaderFade(); A.equal(header.alpha, 0.05, "zero duration is immediate")
+    bar.SetFadeAlpha(0.5); A.equal(header.alpha, 0.05, "bar-wide fader is separate (alphas multiply)")
+    A.equal(h.blocked, 0)
+end)

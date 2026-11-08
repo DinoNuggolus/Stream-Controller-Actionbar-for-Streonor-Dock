@@ -135,6 +135,9 @@ function Options.Build()
             background = select_("bar", "background", "Background", "Background texture (LibSharedMedia).", lsmHash("background"), {dialogControl = "LSM30_Background"}),
             font = select_("bar", "font", "Font", "Font for the page indicator (LibSharedMedia).", lsmHash("font"), {dialogControl = "LSM30_Font"}),
             statusbar = select_("bar", "statusbar", "Status bar texture", "Reserved for bar-style elements (LibSharedMedia).", lsmHash("statusbar"), {dialogControl = "LSM30_Statusbar"}),
+            hfade = toggle("bar", "headerFade", "Fade header when not hovered", "The padlock/cog header fades when the mouse is away from the bar and returns on mouseover. Always fully visible while assigning. It multiplies with the bar-wide fader (the header is a child of the bar)."),
+            hopacity = range("bar", "headerFadedAlpha", "Header faded opacity", "", 0, 1, 0.01, {isPercent = true, disabled = function() return not ns.profile.bar.headerFade end}),
+            hdur = range("bar", "headerFadeDuration", "Header fade duration (s)", "", 0, 2, 0.05, {disabled = function() return not ns.profile.bar.headerFade end}),
             h = header("Highlight / glow"),
             style2 = select_("highlight", "style", "Glow style", "Used for the drop target, the slot being assigned and the ready flash (LibCustomGlow).", function()
                 local v = {}; for k, label in pairs(ns.Glow.STYLES) do v[k] = label end; return v end),

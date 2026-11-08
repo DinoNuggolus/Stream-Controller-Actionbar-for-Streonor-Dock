@@ -265,3 +265,13 @@ A.test("padlock and cog buttons route to assignment and settings", function()
     h.fire(bar.header.cog, "OnClick"); A.equal(opened, 1)
     h.fire(bar.header.padlock, "OnClick"); A.equal(h.ns.Assign.IsActive(), false)
 end)
+
+A.test("page or profile change while locked prompts the reload popup immediately; not in combat", function()
+    local h = host(); h.login()
+    h.ns.Core.setPageCount(h.ns.profile, 2)
+    h.slash("page next"); A.equal(#h.popups, 1)
+    h.ns.Assign.Unlock(); h.slash("page prev"); A.equal(#h.popups, 1, "during a session the lock decides")
+    h.ns.Assign.Lock(); A.equal(#h.popups, 2)
+    h.ns.db:SetProfile("Other"); A.equal(#h.popups, 3, "profile switch while locked")
+    h.combat = true; h.slash("page next"); A.equal(#h.popups, 3); h.combat = false
+end)

@@ -184,6 +184,55 @@ function Bar.RightClick(context, owner, slotIndex)
     elseif action == "menu" then Bar.ContextMenu(owner, slotIndex) end
 end
 
+-- ------------------------------------------------------------------ header fade on hover
+-- The header (padlock/cog bar) fades to headerFadedAlpha when the mouse is not over the panel (header,
+-- bar, buttons, plus an 8 px margin) and returns to full on mouseover. It is a CHILD of the wrapper, so its
+-- effective alpha is header alpha x wrapper (bar-wide fader) alpha: the two are independent and multiply.
+-- Forced fully visible in assignment mode. Only a header-local OnUpdate runs, and only while animating.
+local hovered, headerAlpha, headerTarget = false, 1, 1
+local HOVER_MARGIN = 8
+local function headerGoal()
+    local p = profile()
+    if not p or not p.bar.headerFade or assigning() or hovered then return 1 end
+    return p.bar.headerFadedAlpha
+end
+local function headerStep(self, elapsed)
+    local p = profile()
+    local duration = p and p.bar.headerFadeDuration or 0
+    if duration <= 0 then headerAlpha = headerTarget
+    else
+        local delta = elapsed / duration * math.abs(1 - (p.bar.headerFadedAlpha or 0.05))
+        if delta <= 0 then delta = 1 end
+        if headerAlpha < headerTarget then headerAlpha = math.min(headerTarget, headerAlpha + delta)
+        else headerAlpha = math.max(headerTarget, headerAlpha - delta) end
+    end
+    self:SetAlpha(headerAlpha)
+    if headerAlpha == headerTarget then self:SetScript("OnUpdate", nil) end
+end
+function Bar.UpdateHeaderFade()
+    if not header then return end
+    headerTarget = headerGoal()
+    local p = profile()
+    if headerAlpha == headerTarget then header:SetAlpha(headerAlpha); header:SetScript("OnUpdate", nil); return end
+    if p and p.bar.headerFadeDuration <= 0 then headerAlpha = headerTarget; header:SetAlpha(headerAlpha); return end
+    header:SetScript("OnUpdate", headerStep)
+end
+local function recheckHover()
+    local over = wrapper and wrapper:IsMouseOver(HOVER_MARGIN, -HOVER_MARGIN, -HOVER_MARGIN, HOVER_MARGIN) or false
+    if over ~= hovered then hovered = over; Bar.UpdateHeaderFade() end
+end
+local function onEnter() if not hovered then hovered = true; Bar.UpdateHeaderFade() end end
+local function onLeave()
+    -- Leaving one child usually means entering another: resolve after the enters have run.
+    if type(C_Timer) == "table" and type(C_Timer.After) == "function" then C_Timer.After(0.05, recheckHover) else recheckHover() end
+end
+function Bar.WatchHover(frame)
+    if not frame or frame.streonorWatched then return end
+    frame.streonorWatched = true
+    frame:HookScript("OnEnter", onEnter)
+    frame:HookScript("OnLeave", onLeave)
+end
+
 -- ------------------------------------------------------------------ position
 local function applyPosition()
     local pos = ns.char and ns.char.barPosition
@@ -296,6 +345,7 @@ local function buildButton(i)
     b:HookScript("PostClick", function(self, mouse)
         if mouse == "RightButton" then ns.Safe("rightclick", Bar.RightClick, "button", self, nil) end
     end)
+    Bar.WatchHover(b); Bar.WatchHover(o)
     ns.Secure.Hook(b, 0)   -- shared PostClick restore; bar clicks do not feed the chord counters
     return b
 end
@@ -394,6 +444,7 @@ function Bar.ApplyHeader()
     header.padlock:SetShown(g.showPadlock)
     header.cog:SetShown(g.showCog)
     header.padlock:SetLocked(not assigning())
+    Bar.UpdateHeaderFade()
     local pages = p.pageCount
     local showPages = pages > 1 and p.bar.showPageIndicator
     pageText:SetShown(showPages); header.prev:SetShown(showPages); header.next:SetShown(showPages)
@@ -500,6 +551,7 @@ function Bar.Create()
         pair[1]:SetScript("OnClick", function() ns.Safe("page", ns.SetPage, pair[3]) end)
     end
     header.prev, header.next = prev, next
+    for _, f in ipairs({wrapper, header, cog, lock, prev, next}) do Bar.WatchHover(f) end
     content = CreateFrame("Frame", nil, wrapper)
     content:SetSize(10, 10)
     ghost = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")

@@ -31,6 +31,17 @@ removed LCD/currency/timer design.
   not available through the Cooldown widget). Verify the look in game.
 * Minimap icon uses the client's `Interface\Icons\INV_Misc_Gear_01` by path (no art stored in the repo).
 
+### Cooldowns (user decision: mirror the default action bar, in and out of combat)
+* Verified from installed addons (ForeverAuras): `C_Spell.GetSpellCooldownDuration(id[, true])`, `C_Spell.GetSpellChargeDuration`
+  and `Cooldown:SetCooldownFromDurationObject` exist on this client; `C_Item.GetItemCooldown` is used with SetCooldown.
+* Implemented: spell duration objects go to the widget untouched; restricted item values go straight to
+  `SetCooldown` with native count text; plain values get our `2m`/`2h` text from one shared ticker. No arithmetic or
+  comparison on secrets. Events: SPELL_UPDATE_COOLDOWN, BAG_UPDATE_COOLDOWN, ACTIONBAR_UPDATE_COOLDOWN,
+  SPELL_UPDATE_CHARGES, PLAYER_ENTERING_WORLD.
+* NOT verified (needs the in-game test): that the duration-object calls are accepted in combat on every spell, that
+  the GCD flag/`ignoreGCD` argument excludes the GCD as hoped, the grey-swipe look, cooldown-complete behavior.
+* Header fade: header is a child of the wrapper, so effective alpha = header alpha x bar-wide fader alpha.
+
 ### Not built (by request)
 Visibility-conditions engine, tutorial tips. `Bar.SetFadeAlpha(alpha)` is the hook; Settings > Bar > Visibility is
 an empty placeholder page.

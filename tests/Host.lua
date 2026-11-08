@@ -106,7 +106,7 @@ function ns.host(options)
         function methods:CreateTexture() return object("Texture") end
         function methods:CreateFontString() return object("FontString") end
         function methods:GetTexture() return self.texture end
-        function methods:IsMouseOver() return h.mouseOver == self end
+        function methods:IsMouseOver() return h.hoverAll or h.mouseOver == self end
         function methods:IsOwned(owner) return self.owner==owner end
         function methods:SetOwner(owner) self.owner=owner end
         o.last = {}
@@ -203,6 +203,7 @@ function ns.host(options)
     env.UnitNameUnmodified = function() return options.name or "Tester" end
     env.GetCurrentRegionName = function() return "US" end
     env.GetCurrentRegion = function() return 1 end
+    env.securecallfunction = function(fn, ...) return fn(...) end
     env.ReloadUI = function() h.reloaded = (h.reloaded or 0) + 1 end
     env.StaticPopupDialogs = {}
     env.UISpecialFrames = {}

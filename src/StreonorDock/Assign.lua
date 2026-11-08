@@ -60,6 +60,13 @@ function Assign.ShowReloadPopup()
     if type(StaticPopup_Show) == "function" and StaticPopupDialogs and StaticPopupDialogs[POPUP] then StaticPopup_Show(POPUP) end
 end
 
+-- A page or profile change made while LOCKED prompts the same way (user decision). During an assignment
+-- session the comparison happens at lock instead.
+function Assign.OfferReload()
+    if active or InCombatLockdown() then return end
+    Assign.ShowReloadPopup()
+end
+
 -- ------------------------------------------------------------------ drag helpers
 local function cursorHasPayload() return type(GetCursorInfo) == "function" and GetCursorInfo() ~= nil end
 local function dragIcon()

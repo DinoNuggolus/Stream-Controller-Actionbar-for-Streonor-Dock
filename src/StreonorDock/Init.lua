@@ -76,7 +76,7 @@ function ns.SetPage(action)
     target = math.max(1, math.min(count, math.floor(target)))
     if target == ns.char.currentPage then return true end
     ns.char.currentPage = target
-    if ns.Assign then ns.Assign.NoteChange() end
+    if ns.Assign then ns.Assign.NoteChange(); ns.Assign.OfferReload() end
     ns.LayoutChanged()
     return true
 end
@@ -93,7 +93,7 @@ end
 function ns.ProfileChanged()
     if not loaded then return end
     bind()
-    if ns.Assign then ns.Assign.NoteChange() end
+    if ns.Assign then ns.Assign.NoteChange(); ns.Assign.OfferReload() end
     ns.LayoutChanged()
     if ns.Options then ns.Safe("options", ns.Options.Refresh) end
 end
@@ -145,6 +145,7 @@ end
 function handlers.PLAYER_ENTERING_WORLD()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
+    if ns.Display then ns.Display.CooldownsChanged() end
     ns.Export.EnteringWorld()
 end
 function handlers.PLAYER_REGEN_ENABLED()
@@ -189,6 +190,9 @@ function handlers.BAG_UPDATE_COOLDOWN()
     if loaded and ns.Display then ns.Safe("display cooldowns", ns.Display.CooldownsChanged) end
 end
 function handlers.SPELL_UPDATE_COOLDOWN()
+    if loaded and ns.Display then ns.Safe("display cooldowns", ns.Display.CooldownsChanged) end
+end
+function handlers.ACTIONBAR_UPDATE_COOLDOWN()
     if loaded and ns.Display then ns.Safe("display cooldowns", ns.Display.CooldownsChanged) end
 end
 function handlers.SPELL_UPDATE_CHARGES()

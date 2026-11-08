@@ -182,7 +182,10 @@ function Game.ItemCooldown(itemID)
     local fn = lib("C_Item").GetItemCooldown
     if not itemID or type(fn) ~= "function" then return {unavailable = true} end
     local ok, start, duration, enabled = pcall(fn, itemID)
-    if not ok or issecret(start) or issecret(duration) or issecret(enabled) then return {unavailable = true} end
+    if not ok then return {unavailable = true} end
+    -- Restricted values are handed to the Cooldown widget untouched (no arithmetic, no comparison).
+    if issecret(start) or issecret(duration) then return {secret = true, rawStart = start, rawDuration = duration} end
+    if issecret(enabled) then return {unavailable = true} end
     start, duration = finite(start), finite(duration)
     if not start or not duration then return {unavailable = true} end
     if enabled == false or enabled == 0 then return {unavailable = true} end

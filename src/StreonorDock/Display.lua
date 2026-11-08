@@ -191,6 +191,15 @@ local function updateItem(b, slot, s)
     if s.stackCounts then setBadge(b, count == nil and "?" or tostring(count)) else setBadge(b, "") end
     setZero(b, count == 0)
     local cd = Game.ItemCooldown(slot.id)
+    if cd.secret then
+        -- Same as the default action bar: restricted numbers go straight into the widget, native text.
+        clearCooldown(b)
+        b.cdActive, b.cdNative = true, true
+        styleCooldown(b, true)
+        numbers(b, true)
+        b.cooldown:SetCooldown(cd.rawStart, cd.rawDuration)
+        return
+    end
     if cd.unavailable then
         clearCooldown(b)
         b.cdUnavailable = count ~= nil and count > 0
