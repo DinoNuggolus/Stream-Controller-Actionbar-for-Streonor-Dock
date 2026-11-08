@@ -43,10 +43,11 @@ function ns.host(options)
         local o = {kind=kind, name=name, parent=parent, template=template, scripts={}, attrs={},
             points={}, shown=true, events={}}
         o.secure = template=="SecureActionButtonTemplate"
+        if o.secure then local p = parent; while type(p)=="table" do p.hasSecureChild = true; p = p.parent end end
         local methods = {}
         function methods:GetName() return self.name end
         function methods:SetScript(which, fn)
-            if self.secure and not protected("SetScript") then return end
+            if (self.secure or self.hasSecureChild) and not protected("SetScript") then return end
             self.scripts[which]=fn
         end
         function methods:GetScript(which) return self.scripts[which] end
@@ -55,28 +56,28 @@ function ns.host(options)
             self.events[event]=true
         end
         function methods:SetAttribute(key, value)
-            if self.secure and not protected("SetAttribute") then return end
+            if (self.secure or self.hasSecureChild) and not protected("SetAttribute") then return end
             self.attrs[key]=value
         end
         function methods:GetAttribute(key) return self.attrs[key] end
         function methods:RegisterForClicks(...)
-            if self.secure and not protected("RegisterForClicks") then return end
+            if (self.secure or self.hasSecureChild) and not protected("RegisterForClicks") then return end
             self.clicks={...}
         end
         function methods:SetPoint(...)
-            if self.secure and not protected("SetPoint") then return end
+            if (self.secure or self.hasSecureChild) and not protected("SetPoint") then return end
             self.points[#self.points+1]={...}
         end
         function methods:ClearAllPoints()
-            if self.secure and not protected("ClearAllPoints") then return end
+            if (self.secure or self.hasSecureChild) and not protected("ClearAllPoints") then return end
             self.points={}
         end
         function methods:GetPoint() local p=self.points[1]; if p then return p[1], p[2], p[3], p[4], p[5] end end
         function methods:Show()
-            if self.secure and not protected("Show") then return end
+            if (self.secure or self.hasSecureChild) and not protected("Show") then return end
             if not self.shown then self.shown=true; if self.scripts.OnShow then self.scripts.OnShow(self) end end end
         function methods:Hide()
-            if self.secure and not protected("Hide") then return end
+            if (self.secure or self.hasSecureChild) and not protected("Hide") then return end
             if self.shown then self.shown=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end end
         function methods:IsShown() return self.shown end
         function methods:SetText(text) self.text=text end
@@ -84,7 +85,24 @@ function ns.host(options)
         function methods:SetTexture(texture) self.texture=texture end
         function methods:SetCooldown(start, duration) self.cd={start, duration} end
         function methods:Clear() self.cd=nil end
-        function methods:GetFrameLevel() return 1 end
+        function methods:SetSize(w, h) if (self.secure or self.hasSecureChild) and not protected("SetSize") then return end; self.w, self.h = w, h end
+        function methods:SetWidth(w) if (self.secure or self.hasSecureChild) and not protected("SetWidth") then return end; self.w = w end
+        function methods:SetHeight(hh) if (self.secure or self.hasSecureChild) and not protected("SetHeight") then return end; self.h = hh end
+        function methods:GetWidth() return self.w or 0 end
+        function methods:GetHeight() return self.h or 0 end
+        function methods:SetScale(v) if (self.secure or self.hasSecureChild) and not protected("SetScale") then return end; self.scale = v end
+        function methods:GetScale() return self.scale or 1 end
+        function methods:GetEffectiveScale() return self.scale or 1 end
+        function methods:SetAlpha(v) self.alpha = v end
+        function methods:GetAlpha() return self.alpha or 1 end
+        function methods:SetShown(v) if v then self:Show() else self:Hide() end end
+        function methods:HookScript(which, fn) self.hooks = self.hooks or {}; self.hooks[which] = self.hooks[which] or {}; table.insert(self.hooks[which], fn) end
+        function methods:GetCenter() return self.cx or 0, self.cy or 0 end
+        function methods:StartMoving() self.moving = true end
+        function methods:StopMovingOrSizing() self.moving = false end
+        function methods:SetFrameLevel(v) self.level = v end
+        function methods:SetParent(p) self.parent = p end
+        function methods:GetFrameLevel() return self.level or 1 end
         function methods:CreateTexture() return object("Texture") end
         function methods:CreateFontString() return object("FontString") end
         function methods:IsOwned(owner) return self.owner==owner end
@@ -179,7 +197,7 @@ function ns.host(options)
         strlenutf8=true, RegionalUniqueNamesEnabled=true, StaticPopupDialogs=true, StaticPopup_Show=true,
         MenuUtil=true, Settings=true, ReloadUI=true, _G=true, LibCustomGlow=true, UISpecialFrames=true,
         SlashCmdList=true, geterrorhandler=true, xpcall=true, getmetatable=true, rawget=true, rawset=true,
-        C_Texture=true}
+        C_Texture=true, CloseMenus=true, L_Create_UIDropDownMenu=true}
     setmetatable(env, {__index=function(_, key)
         if not allowed[key] then error("unexpected global " .. tostring(key), 2) end
     end})
@@ -188,7 +206,7 @@ function ns.host(options)
     -- loaded with a lenient environment (they read optional globals); everything else is strict.
     local strictIndex = getmetatable(env).__index
     local libWhitelist = {["LibStub.lua"]=true, ["CallbackHandler-1.0.lua"]=true, ["AceDB-3.0.lua"]=true,
-        ["AceConfigRegistry-3.0.lua"]=true}
+        ["AceConfigRegistry-3.0.lua"]=true, ["AceDBOptions-3.0.lua"]=true}
     local function runLua(path, lenient)
         local chunk, err = loadfile(path)
         A.equal(type(chunk), "function", err or path)
@@ -254,6 +272,12 @@ function ns.host(options)
         for _, m in ipairs(h.messages) do if string.find(m, pattern, 1, true) then return true end end
         return false
     end
+    -- Fires a frame script and its hooks (simulated user input).
+    function h.fire(frame, which, ...)
+        if frame.scripts[which] then frame.scripts[which](frame, ...) end
+        for _, fn in ipairs(frame.hooks and frame.hooks[which] or {}) do fn(frame, ...) end
+    end
+    function h.bar(i) return h.named("StreonorDockBarButton" .. i) end
     function h.runTimers() local list=h.timers; h.timers={}; for _, t in ipairs(list) do if not t.cancelled then t.fn() end end end
     return h
 end

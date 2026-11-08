@@ -16,4 +16,9 @@ Game.lua
 Slots.xml
 Secure.lua
 Export.lua
+Menu.lua
+Glow.lua
+Bar.lua
+Minimap.lua
+Options.lua
 Init.lua
