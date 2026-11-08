@@ -336,11 +336,29 @@ function Export.StampSaved()
     snapshot.savedAt=Export.ServerNow()
     snapshot.revision=ns.state.revision
 end
+-- Login safety net: a metadata request made before the client could answer (or whose result event
+-- was missed) must not leave '?' icons or zero counts until /reload. Forget in-flight/failed
+-- request bookkeeping and redraw; bounded because only two callers are scheduled per entering-world.
+function Export.RetryMetadata()
+    for _, kind in ipairs({"spell","item"}) do
+        requested[kind], failed[kind], attempts[kind] = {}, {}, {}
+    end
+    ns.Safe("panel", ns.Panel.Refresh)
+    ns.Safe("secure", ns.Secure.Request)
+    Export.MarkDirty()
+end
 function Export.EnteringWorld()
     teardown=false
     worldGeneration=worldGeneration+1
     local generation=worldGeneration
     local timer=lib("C_Timer")
+    if type(timer.After)=="function" then
+        for _, delay in ipairs({3, 8}) do
+            pcall(timer.After, delay, function()
+                if not teardown and generation==worldGeneration then ns.Safe("metadata retry", Export.RetryMetadata) end
+            end)
+        end
+    end
     if type(timer.After)=="function" then
         local ok=pcall(timer.After, 2, function()
             if not teardown and generation==worldGeneration then ns.Safe("export dirty", Export.MarkDirty) end

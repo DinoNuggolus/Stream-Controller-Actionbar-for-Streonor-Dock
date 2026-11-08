@@ -1,6 +1,7 @@
 local addonName, ns = ...
 local A=ns.Assert
 local host, SECRET, copy = ns.host, ns.SECRET, ns.copy
+local QMARK="Interface\\Icons\\INV_Misc_QuestionMark"
 local function eventFrames(h)
     local n=0
     for _, f in ipairs(h.frames) do if next(f.events) then n=n+1 end end
@@ -556,4 +557,41 @@ A.test("diagnostic CLICK bindings are declared and named, never set by the addon
         local code=string.gsub(text,"%-%-[^\n]*","")
         A.equal(string.find(code,"SetBinding%s*%(")==nil and string.find(code,"SaveBindings%s*%(")==nil,true,file)
     end
+end)
+A.test("fresh login with nothing cached: icons, counts and export fill in without /reload",function()
+    local h=host({saved=nil})
+    -- First session builds a layout, second session restores it with all item/spell data uncached.
+    h.items[8]={name="Water",icon=500,count=4}
+    h.spells[42]={name="Moonfire",icon=136096,cached=true}
+    h.login(); h.ns.Edit("slots",1,{kind="spell",id=42}); h.ns.Edit("slots",2,{kind="item",id=8})
+    local saved=ns.copy(h.env.StreonorDockCharDB)
+    local h2=host({saved=saved,db={}})
+    h2.event("ADDON_LOADED",addonName)
+    h2.event("PLAYER_LOGIN"); h2.event("PLAYER_ENTERING_WORLD")
+    local s1,s2=h2.editor("slots",1),h2.editor("slots",2)
+    A.equal(s1.icon.texture,QMARK)
+    A.equal(s2.icon.texture,QMARK)
+    A.equal(s2.count.text,"0")   -- bags not loaded yet
+    -- Data arrives later.
+    h2.items[8]={name="Water",icon=500,count=4}
+    h2.spells[42]={name="Moonfire",icon=136096,cached=true}
+    h2.event("SPELL_DATA_LOAD_RESULT",42,true); h2.event("ITEM_DATA_LOAD_RESULT",8,true)
+    A.equal(s1.icon.texture,136096); A.equal(s2.icon.texture,500); A.equal(s2.count.text,"4")
+    for _=1,4 do h2.runTimers() end
+    local e=h2.env.StreonorDockDB.export
+    A.equal(e.slots[1].iconFileID,136096); A.equal(e.slots[2].iconFileID,500); A.equal(e.slots[2].count,4)
+end)
+A.test("missed data-load event: delayed login retry still fills icons and counts",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("slots",2,{kind="item",id=8})
+    local saved=ns.copy(h.env.StreonorDockCharDB)
+    local h2=host({saved=saved,db={}})
+    h2.event("ADDON_LOADED",addonName); h2.event("PLAYER_LOGIN"); h2.event("PLAYER_ENTERING_WORLD")
+    local b=h2.editor("slots",2)
+    A.equal(b.icon.texture,QMARK)
+    h2.items[8]={name="Water",icon=500,count=4}   -- data arrives, but no ITEM_DATA_LOAD_RESULT is delivered
+    for _=1,4 do h2.runTimers() end
+    A.equal(b.icon.texture,500); A.equal(b.count.text,"4")
+    A.equal(h2.env.StreonorDockDB.export.slots[2].iconFileID,500)
 end)
