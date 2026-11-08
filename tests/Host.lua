@@ -16,7 +16,7 @@ local noop = function() end
 function ns.host(options)
     options = options or {}
     local h = {frames={}, messages={}, combat=false, time=100, overrides={}, ordinary={},
-        cursor={}, keyDown=true, items={}, spells={}, requests={}, timers={}, money=5000,
+        cursor={}, keyDown=true, items={}, spells={}, spellCd={}, charges={}, requests={}, timers={}, money=5000,
         unknownEvents=options.unknownEvents or {}, protectedCalls=0, setBindingCalls=0, cleared=0,
         blocked=0, blockedNames={}, internalErrors=0}
     ns.hosts[#ns.hosts+1] = h
@@ -126,6 +126,8 @@ function ns.host(options)
     env.C_Spell = {
         GetSpellInfo=function(id) local s=h.spells[id]; if s and s.cached then return {name=s.name, iconID=s.icon} end end,
         RequestLoadSpellData=function(id) h.requests[#h.requests+1]="spell:" .. id end,
+        GetSpellCooldown=function(id) return h.spellCd[id] end,
+        GetSpellCharges=function(id) return h.charges[id] end,
     }
     env.C_Item = {
         GetItemIconByID=function(id) local i=h.items[id]; return i and i.icon end,

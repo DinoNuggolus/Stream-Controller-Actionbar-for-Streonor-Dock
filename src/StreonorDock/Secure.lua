@@ -27,7 +27,9 @@ local function postClick(self)
     -- "the key was pressed", NOT that the item was used (the use can fail); the timers treat it
     -- as a press and reconcile with readable game data. Never acts on gameplay.
     ns.Safe("press", function()
-        if self.streonorKind=="item" and self.streonorID then
+        if self.streonorKind=="spell" and self.streonorID then
+            ns.Export.OnSpellPress(self.streonorID)
+        elseif self.streonorKind=="item" and self.streonorID then
             if ns.Export.OnKeyPress(self.streonorID) then
                 if ns.Panel.RefreshCooldowns then ns.Panel.RefreshCooldowns() end
                 ns.Export.MarkDirty()

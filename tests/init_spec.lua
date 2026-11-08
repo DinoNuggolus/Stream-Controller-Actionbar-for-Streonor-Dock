@@ -607,7 +607,7 @@ A.test("export carries known press-timer lengths (learned, table + pool key); un
     h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("slots",2,{kind="item",id=9})
     h.ns.Edit("slots",3,{kind="item",id=potion}); h.ns.Edit("slots",4,{kind="item",id=7})
     local e=h.env.StreonorDockDB.export
-    A.equal(e.slots[1].cooldownSeconds,120); A.equal(e.slots[1].cooldownSource,"verified"); A.equal(e.slots[1].poolKey,nil)
+    A.equal(e.slots[1].cooldownSeconds,120); A.equal(e.slots[1].cooldownSource,"learned"); A.equal(e.slots[1].verified,true); A.equal(e.slots[1].poolKey,nil)
     A.equal(e.slots[2].cooldownSeconds,45); A.equal(e.slots[2].cooldownSource,"learned")
     A.equal(e.slots[3].cooldownSeconds,120); A.equal(e.slots[3].cooldownSource,"table"); A.equal(e.slots[3].poolKey,"pool:potion")
     A.equal(e.slots[4].cooldownSeconds,nil); A.equal(e.slots[4].cooldownSource,nil)
@@ -638,4 +638,78 @@ A.test("client logging switches: requested once per session, guarded, settings r
     local h4=host(); h4.login(); h4.slash("log")
     A.equal(h4.said("chat logging: unavailable"),true); A.equal(h4.said("combat logging: unavailable"),true)
     A.equal(h4.internalErrors,0)
+end)
+A.test("spell timers: base cooldown, GCD-only ignored, category, charges, unknown omitted",function()
+    local base={[100]={30000,0},[101]={1500,0},[102]={8000,45000},[103]={0,0},[104]={20000,0},[105]={0,60000}}
+    local h=host({env={GetSpellBaseCooldown=function(id) local b=base[id]; if b then return b[1],b[2] end end}})
+    h.charges[104]={maxCharges=2,currentCharges=2}
+    h.login()
+    for i=1,6 do h.ns.Edit("slots",i,{kind="spell",id=99+i}) end
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.slots[1].cooldownSeconds,30); A.equal(e.slots[1].cooldownSource,"base"); A.equal(e.slots[1].verified,nil)
+    A.equal(e.slots[2].cooldownSeconds,nil,"1.5 s is the global cooldown")
+    A.equal(e.slots[3].cooldownSeconds,45); A.equal(e.slots[3].cooldownSource,"category"); A.equal(e.slots[3].categorySeconds,45)
+    A.equal(e.slots[4].cooldownSeconds,nil,"zero is not a confirmed cooldown"); A.equal(e.slots[4].cooldownSource,nil)
+    A.equal(e.slots[5].cooldownSeconds,nil); A.equal(e.slots[5].maxCharges,2,"charges: no timer, count exported")
+    A.equal(e.slots[6].cooldownSeconds,60); A.equal(e.slots[6].cooldownSource,"category")
+    local none=host(); none.login(); none.ns.Edit("slots",1,{kind="spell",id=100})
+    A.equal(none.env.StreonorDockDB.export.slots[1].cooldownSeconds,nil,"missing API tolerated")
+end)
+A.test("spell learning: out of combat only, replaces base, replaced on a later value, build-stamped",function()
+    local baseValue=30000
+    local h=host({env={GetSpellBaseCooldown=function() return baseValue,0 end}})
+    h.login(); h.ns.Edit("slots",1,{kind="spell",id=100})
+    A.equal(h.env.StreonorDockDB.export.slots[1].cooldownSeconds,30)
+    local button=h.button(1)
+    -- press in combat: remembered, never read
+    h.combat=true; h.spellCd[100]={startTime=h.time,duration=12,isEnabled=true}
+    button.scripts.PostClick(button); h.runTimers(); h.combat=false
+    A.equal(h.env.StreonorDockDB.cooldownLearned.spells==nil or next(h.env.StreonorDockDB.cooldownLearned.spells)==nil,true)
+    -- out of combat: GCD-only reading ignored, real reading learned
+    h.spellCd[100]={startTime=h.time,duration=1.5,isEnabled=true}
+    button.scripts.PostClick(button); h.runTimers()
+    A.equal(h.env.StreonorDockDB.cooldownLearned.spells[100],nil)
+    h.spellCd[100]={startTime=h.time,duration=12,isEnabled=true}
+    button.scripts.PostClick(button); h.runTimers()
+    local learned=h.env.StreonorDockDB.cooldownLearned.spells[100]
+    A.equal(learned.duration,12); A.equal(learned.verified,true); A.equal(type(learned.at),"number")
+    h.ns.Export.Refresh()
+    local slot=h.env.StreonorDockDB.export.slots[1]
+    A.equal(slot.cooldownSeconds,12); A.equal(slot.cooldownSource,"learned"); A.equal(slot.verified,true)
+    -- a later reading with a different value replaces the stored one; a stale start time is not used
+    h.time=h.time+50; h.spellCd[100]={startTime=h.time-20,duration=10,isEnabled=true}
+    button.scripts.PostClick(button); h.runTimers()
+    A.equal(h.env.StreonorDockDB.cooldownLearned.spells[100].duration,12,"start far from the press: not our use")
+    h.spellCd[100]={startTime=h.time,duration=10,isEnabled=true}
+    button.scripts.PostClick(button); h.runTimers()
+    A.equal(h.env.StreonorDockDB.cooldownLearned.spells[100].duration,10)
+    -- reload refresh: the game base value changed -> unlearned slot follows it
+    local h2=host({env={GetSpellBaseCooldown=function() return baseValue,0 end}})
+    h2.login(); h2.ns.Edit("slots",1,{kind="spell",id=101}); A.equal(h2.env.StreonorDockDB.export.slots[1].cooldownSeconds,30)
+    baseValue=45000; h2.event("PLAYER_ENTERING_WORLD"); h2.runTimers(); h2.runTimers(); h2.ns.Export.Refresh()
+    A.equal(h2.env.StreonorDockDB.export.slots[1].cooldownSeconds,45)
+end)
+A.test("sealed cooldown readings are never exported or stored",function()
+    local h=host({env={GetSpellBaseCooldown=function() return ns.SECRET,ns.SECRET end}})
+    h.login(); h.ns.Edit("slots",1,{kind="spell",id=100})
+    A.equal(h.env.StreonorDockDB.export.slots[1].cooldownSeconds,nil)
+    local h2=host({env={GetSpellBaseCooldown=function() return 20000,0 end}})
+    h2.login(); h2.ns.Edit("slots",1,{kind="spell",id=100})
+    h2.spellCd[100]={startTime=ns.SECRET,duration=ns.SECRET,isEnabled=ns.SECRET}
+    local b=h2.button(1); b.scripts.PostClick(b); h2.runTimers()
+    A.equal(h2.env.StreonorDockDB.cooldownLearned.spells==nil or next(h2.env.StreonorDockDB.cooldownLearned.spells)==nil,true)
+    h2.spellCd[100]=ns.SECRET; b.scripts.PostClick(b); h2.runTimers()
+    A.equal(h2.env.StreonorDockDB.cooldownLearned.spells==nil or next(h2.env.StreonorDockDB.cooldownLearned.spells)==nil,true)
+end)
+A.test("item slots use the game base cooldown via C_Item.GetItemSpell; learned wins; /sdock cdprobe prints plain values",function()
+    local h=host({env={GetSpellBaseCooldown=function(id) if id==555 then return 90000,0 end end}})
+    h.env.C_Item.GetItemSpell=function(id) if id==8 then return "Infusion",555 end end
+    h.items[8]={name="Stone",icon=500,count=1}; h.spells[100]={name="Bolt",icon=1,cached=true}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("slots",2,{kind="spell",id=100})
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.slots[1].cooldownSeconds,90); A.equal(e.slots[1].cooldownSource,"base"); A.equal(e.slots[1].verified,nil)
+    h.slash("cdprobe")
+    A.equal(h.said("item 8 -> spell 555"),true); A.equal(h.said("base raw 90000, 0"),true); A.equal(h.said("-> 90.0s base") or h.said("-> 90s base"),true)
+    A.equal(h.said("spell 100 | base raw n/a") or h.said("spell 100"),true)
+    A.equal(h.internalErrors,0)
 end)

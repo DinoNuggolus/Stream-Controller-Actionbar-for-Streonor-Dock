@@ -174,3 +174,9 @@ Assumption updates (replace items 1 and 4 above):
   existing 1s debounce. PLAYER_REGEN_DISABLED closes the picker. Probe lists the four C_CurrencyInfo functions.
 - Tests: tests/currency_spec.lua (fake C_CurrencyInfo in Host.lua). Unverified in game: the picker layout, ExpandCurrencyList behavior,
   whether Honor appears in the currency list on Forever.
+
+## Spell cooldown timers (2026-11-08)
+- Export.SpellBase/SpellTimer/ObserveSpell/OnSpellPress/MaxCharges, Secure postClick spell branch, `/sdock cdprobe`;
+  Tracker precedence is now learned > group learned > dormant > game base > shipped table. Export field `cooldownSource`
+  gains base/category and `verified` is now a boolean (was source "verified"). 81 tests. Units/returns of
+  GetSpellBaseCooldown on Forever unverified (not in the API mirror).

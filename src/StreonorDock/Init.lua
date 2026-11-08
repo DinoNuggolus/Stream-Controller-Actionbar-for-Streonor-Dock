@@ -222,6 +222,7 @@ function handlers.PLAYER_LOGOUT()
     if loaded then ns.Safe("export stamp", ns.Export.StampSaved) end
 end
 
+local function lib2(name) local t=_G[name]; return type(t)=="table" and t or {} end
 local function show(label, value) say(label .. ": " .. (type(value)=="function" and "available" or "unavailable")) end
 local function plainText(value)
     if ns.Export.issecret(value) then return "sealed" end
@@ -377,13 +378,62 @@ local function chords()
     end
     say(conflicts .. " conflict(s). 'effective' uses GetBindingAction(key, true); if it never says 'ours' after login, that lookup is unsupported or overrides failed.")
 end
+-- Diagnostic for the user to run in game: plain values only, sealed values are reported as "sealed".
+local function cdprobe()
+    local fn = _G.GetSpellBaseCooldown
+    say("cdprobe: GetSpellBaseCooldown global " .. (type(fn)=="function" and "available" or "missing")
+        .. "; C_Spell.GetSpellBaseCooldown " .. (type(lib2("C_Spell").GetSpellBaseCooldown)=="function" and "available" or "missing")
+        .. "; combat lockdown " .. tostring(InCombatLockdown()))
+    local page = ns.state.pages[ns.state.currentPage]
+    for _, area in ipairs({"slots","readouts"}) do
+        for index, value in ipairs(page[area]) do
+            if value.kind=="spell" or value.kind=="item" then
+                local id = value.id or value.itemID
+                local row = area .. "[" .. index .. "] " .. value.kind .. " " .. id
+                local spellID = id
+                if value.kind=="item" then
+                    local getSpell = lib2("C_Item").GetItemSpell
+                    local okSpell, name, sid
+                    if type(getSpell)=="function" then okSpell, name, sid = pcall(getSpell, id) end
+                    spellID = okSpell and not ns.Export.issecret(sid) and tonumber(sid) or nil
+                    row = row .. " -> spell " .. plainText(spellID)
+                end
+                local first, second = "n/a", "n/a"
+                if spellID and type(fn)=="function" then
+                    local ok, a, b = pcall(fn, spellID)
+                    if ok then first, second = plainText(a), plainText(b) else first, second = "error", "error" end
+                end
+                row = row .. " | base raw " .. first .. ", " .. second .. " (ms?)"
+                local seconds, source = ns.Export.SpellBase(spellID)
+                row = row .. " -> " .. (seconds and (seconds .. "s " .. source) or "none")
+                if value.kind=="spell" then
+                    local learned, verified = ns.Export.SpellLearned(id)
+                    local start, length = ns.Export.ReadSpellCooldown(id)
+                    row = row .. " | learned " .. (learned and (learned .. "s" .. (verified and " verified" or "")) or "-")
+                        .. " | GetSpellCooldown " .. (start and "plain" or tostring(length))
+                        .. " | charges " .. plainText(ns.Export.MaxCharges(id))
+                else
+                    local learned = ns.cooldowns and ns.cooldowns:learnedDuration(id)
+                    local group = ns.cooldowns and ns.cooldowns:group(id)
+                    local shipped = group and ns.CooldownGroups[group] and ns.CooldownGroups[group].duration
+                    local start, length = ns.Export.ReadItemCooldown(id)
+                    row = row .. " | learned " .. (learned and (learned .. "s") or "-") .. " | shipped " .. plainText(shipped)
+                        .. " | GetItemCooldown " .. (start and "plain" or tostring(length))
+                end
+                local exported = StreonorDockDB.export and StreonorDockDB.export[area] and StreonorDockDB.export[area][index]
+                row = row .. " | exported " .. (exported and exported.cooldownSeconds and (exported.cooldownSeconds .. "s " .. tostring(exported.cooldownSource)) or "none")
+                say(row)
+            end
+        end
+    end
+end
 local function estimates(arg)
     if arg=="on" or arg=="off" or arg=="auto" then StreonorDockDB.settings.estimates=arg end
     say("press estimates: " .. StreonorDockDB.settings.estimates .. " -> " .. (ns.Export.EstimatesEnabled() and "on" or "off")
         .. " (usage: /sdock estimates on|off|auto)")
 end
 local function help()
-    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | log [chat|combat on|off] | help")
+    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | cdprobe | log [chat|combat on|off] | help")
     say("Drag a spell or bag item onto a key; click a readout to pick money or a currency; right-click clears. Out of combat only.")
     say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
@@ -398,6 +448,7 @@ SlashCmdList.STREONORDOCK=function(message)
     elseif command=="chords" then ns.Safe("chords", chords)
     elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
     elseif command=="cooldowns" then ns.Safe("cooldowns", cooldowns)
+    elseif command=="cdprobe" then ns.Safe("cdprobe", cdprobe)
     elseif command=="log" then ns.Safe("log", logCommand, arg, arg2)
     elseif command=="export" then
         ns.Safe("export summary", exportSummary)

@@ -156,17 +156,122 @@ end
 -- Item base cooldown in seconds, ONLY if the client exposes a base-cooldown API (probed, never
 -- assumed): C_Item.GetItemSpell(itemID) -> spellID, then C_Spell.GetSpellBaseCooldown or the
 -- GetSpellBaseCooldown global, whose first return is treated as milliseconds (unverified).
+local function baseFunction()
+    local fn = lib("C_Spell").GetSpellBaseCooldown
+    if type(fn)~="function" then fn = GetSpellBaseCooldown end
+    if type(fn)=="function" then return fn end
+end
+-- Spell base cooldown from the game: GetSpellBaseCooldown(spellID) -> cooldownMS, categoryMS (classic
+-- convention, units unverified on Forever; see /sdock cdprobe). Only plain finite values > 1.5 s are
+-- accepted (<= 1.5 s is the global cooldown; 0/nil means "no known cooldown", never a confirmed zero).
+-- Returns seconds, "base"|"category", categorySeconds. A larger category value wins and is flagged shared.
+function Export.SpellBase(spellID)
+    local fn = baseFunction()
+    if not fn or not positiveInteger(spellID) then return nil end
+    local ok, first, second = pcall(fn, spellID)
+    if not ok then return nil end
+    first, second = finite(first), finite(second)
+    local own = first and first>1500 and first/1000 or nil
+    local category = second and second>1500 and second/1000 or nil
+    if category and (not own or category>own) then return category, "category", category end
+    if own then return own, "base", category end
+end
 function Export.BaseCooldown(itemID)
     local getSpell = lib("C_Item").GetItemSpell
-    local getBase = lib("C_Spell").GetSpellBaseCooldown
-    if type(getBase)~="function" then getBase = GetSpellBaseCooldown end
-    if type(getSpell)~="function" or type(getBase)~="function" or not positiveInteger(itemID) then return nil end
+    if type(getSpell)~="function" or not positiveInteger(itemID) then return nil end
     local ok, _, spellID = pcall(getSpell, itemID)
     spellID = ok and positiveInteger(spellID) or nil
     if not spellID then return nil end
-    local okBase, ms = pcall(getBase, spellID)
-    ms = okBase and finite(ms) or nil
-    if ms and ms>1500 then return ms/1000 end
+    local seconds, source = Export.SpellBase(spellID)
+    return seconds, source
+end
+
+-- Spells with charges are shown without a timer (a press does not mean "unavailable"): plain
+-- maxCharges > 1 from C_Spell.GetSpellCharges, when that API exists. Never guessed.
+function Export.MaxCharges(spellID)
+    local fn = lib("C_Spell").GetSpellCharges
+    if type(fn)~="function" or not positiveInteger(spellID) then return nil end
+    local ok, info = pcall(fn, spellID)
+    info = ok and plain(info) or nil
+    if type(info)=="table" then
+        local maxCharges = positiveInteger(info.maxCharges)
+        if maxCharges and maxCharges>1 then return maxCharges end
+    end
+end
+-- Plain start/duration (GetTime clock) of a spell's cooldown, or nil + "sealed"|"unavailable".
+function Export.ReadSpellCooldown(spellID)
+    local fn = lib("C_Spell").GetSpellCooldown
+    if type(fn)~="function" or not positiveInteger(spellID) then return nil, "unavailable" end
+    local ok, info = pcall(fn, spellID)
+    if not ok then return nil, "unavailable" end
+    if issecret(info) then return nil, "sealed" end
+    if type(info)~="table" then return nil, "unavailable" end
+    if issecret(info.startTime) or issecret(info.duration) or issecret(info.isEnabled) then return nil, "sealed" end
+    local start, length = finite(info.startTime), finite(info.duration)
+    if not start or not length then return nil, "unavailable" end
+    return start, length
+end
+
+-- Learned spell lengths: StreonorDockDB.cooldownLearned.spells[spellID] = {duration, at, build, verified}.
+-- Out of combat only, from a plain reading taken right after OUR key press; replaced when the game
+-- later reports a different value. A build change keeps the value but drops 'verified'.
+local function spellStore()
+    if type(StreonorDockDB)~="table" then return nil end
+    if type(StreonorDockDB.cooldownLearned)~="table" then StreonorDockDB.cooldownLearned = {} end
+    local learned = StreonorDockDB.cooldownLearned
+    if type(learned.spells)~="table" then learned.spells = {} end
+    return learned.spells
+end
+function Export.SpellLearned(spellID)
+    local store = spellStore()
+    local entry = store and store[spellID]
+    if type(entry)~="table" or not (finite(entry.duration) and entry.duration>1.5) then return nil end
+    local build = Export.Build()
+    return entry.duration, entry.verified==true and entry.build==build
+end
+-- Press-time timestamp per spell and the read-back attempts after it.
+local spellPressed = {}
+function Export.ObserveSpell(spellID)
+    if type(InCombatLockdown)~="function" or InCombatLockdown() then return false end
+    local pressedAt, now = spellPressed[spellID], Export.Now()
+    if not pressedAt or not now or now-pressedAt>5 then return false end
+    local start, length = Export.ReadSpellCooldown(spellID)
+    if not start or length<=1.5 or start<=0 or math.abs(start-pressedAt)>2.5 then return false end
+    local store = spellStore()
+    if not store then return false end
+    local entry = type(store[spellID])=="table" and store[spellID] or nil
+    if not entry or math.abs(entry.duration-length)>0.5 or entry.build~=Export.Build() then
+        store[spellID] = {duration=length, at=Export.ServerNow(), build=Export.Build(), verified=true}
+    else
+        entry.at, entry.verified = Export.ServerNow(), true
+    end
+    spellPressed[spellID] = nil
+    return true
+end
+-- PostClick for a spell key (not in combat for reading; the press is always remembered).
+function Export.OnSpellPress(spellID)
+    spellID = positiveInteger(spellID)
+    if not spellID or Export.MaxCharges(spellID) then return false end
+    spellPressed[spellID] = Export.Now()
+    local timer = lib("C_Timer")
+    if type(timer.After)=="function" then
+        for _, delay in ipairs({0.5, 2}) do
+            pcall(timer.After, delay, function()
+                if spellPressed[spellID] and ns.Safe("spell observe", Export.ObserveSpell, spellID) then ns.Export.MarkDirty() end
+            end)
+        end
+    end
+    return true
+end
+-- Duration for a spell slot: learned (own observed use) > game base value. seconds, source, verified,
+-- categorySeconds, maxCharges. Unknown returns nothing.
+function Export.SpellTimer(spellID)
+    local charges = Export.MaxCharges(spellID)
+    if charges then return nil, nil, nil, nil, charges end
+    local learned, verified = Export.SpellLearned(spellID)
+    local base, source, category = Export.SpellBase(spellID)
+    if learned then return learned, "learned", verified, category end
+    if base then return base, source, false, category end
 end
 
 -- Estimates (press-started timers) are a setting: "on", "off" or "auto" (default). Auto turns
@@ -349,7 +454,13 @@ local function rawProviders()
                 currencies[value.currencyID] = Export.CurrencyMeta(value.currencyID) or {}
             elseif value.kind=="spell" and not spells[value.id] then
                 local name, icon = Export.SpellMeta(value.id)
-                spells[value.id] = {name=name, iconFileID=icon}
+                local entry = {name=name, iconFileID=icon}
+                local seconds, source, verified, category, charges = Export.SpellTimer(value.id)
+                if seconds then
+                    entry.cooldownSeconds, entry.cooldownSource, entry.verified, entry.categorySeconds = seconds, source, verified, category
+                end
+                if charges then entry.maxCharges = charges end
+                spells[value.id] = entry
             elseif value.kind=="item" then
                 local itemID = value.id or value.itemID
                 if not items[itemID] then
@@ -357,13 +468,17 @@ local function rawProviders()
                     local entry = {name=name, iconFileID=icon, count=Export.ItemCount(itemID)}
                     if tracker then
                         -- Learned/shipped press-timer length only (base-API, dormant and unknown are not exported).
-                        local length, origin = tracker:pressDuration(itemID)
-                        if length and length>0 and origin~="base" and origin~="dormant" then
-                            local verified
-                            if origin=="item" then verified = tracker.store.items[itemID].verified
-                            elseif origin=="group" then verified = tracker.store.groups[tracker:group(itemID)].verified end
+                        local baseSeconds, baseSource = Export.BaseCooldown(itemID)
+                        local length, origin = tracker:pressDuration(itemID, baseSeconds)
+                        if length and length>0 and origin~="dormant" then
+                            local verified = false
+                            if origin=="item" then verified = tracker.store.items[itemID].verified==true
+                            elseif origin=="group" then verified = tracker.store.groups[tracker:group(itemID)].verified==true end
                             entry.cooldownSeconds = length
-                            entry.cooldownSource = (origin=="table") and "table" or (verified and "verified" or "learned")
+                            entry.verified = verified
+                            if origin=="table" then entry.cooldownSource = "table"
+                            elseif origin=="base" then entry.cooldownSource = baseSource or "base"
+                            else entry.cooldownSource = "learned" end
                             local key = tracker:key(itemID)
                             if type(key)=="string" then entry.poolKey = (string.gsub(key, "[^%w_:]", "_")) end
                         end

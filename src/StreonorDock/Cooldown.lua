@@ -121,8 +121,8 @@ function Tracker:pressDuration(itemID, baseDuration)
     local learned = key and self.store.groups[key]
     if learned then return learned.duration,"group" end
     if g and g.dormant then return 0,"dormant" end
-    if g and g.duration then return g.duration,"table" end
     if duration(baseDuration) then return baseDuration,"base" end
+    if g and g.duration then return g.duration,"table" end
 end
 function Tracker:learnedDuration(itemID)
     local length, origin = self:pressDuration(itemID)

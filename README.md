@@ -242,3 +242,23 @@ touched at login. Commands: `/sdock log` (status), `/sdock log chat on|off`, `/s
 **Unverified:** how Forever honors these calls (Prat, BigWigs and Details call them). Check `/sdock log`
 and whether the log files actually grow. The companion plugin deletes these files after logout
 (see the StreonorWoW README).
+
+## Spell and item cooldown lengths for the controller timers
+
+Each spell or item slot exports `cooldownSeconds` (plus `cooldownSource` = `learned` | `base` | `category` | `table`,
+`verified`, optional `categorySeconds`, `poolKey` and `maxCharges`) when a length is known; otherwise the fields are
+omitted and the controller shows no timer. Sources, best first:
+1. **learned**: out of combat only, right after a press of that key, `C_Spell.GetSpellCooldown` (spells) or the existing
+   item observation is read; a plain duration > 1.5 s starting within ~2.5 s of the press is stored in
+   `StreonorDockDB.cooldownLearned` (spells: `.spells[id] = {duration, at, build, verified}`) and replaced when a later
+   observation differs. Sealed values are never read into storage. A client build change drops `verified`.
+2. **base**: global `GetSpellBaseCooldown(spellID)` (first return ms, second the category cooldown, classic convention;
+   **units/returns unverified on Forever, run `/sdock cdprobe`**). Only plain values > 1.5 s are used (<= 1.5 s is the
+   global cooldown; 0/nil means unknown, never a confirmed zero). A larger category value wins and is labelled `category`.
+   Items use `C_Item.GetItemSpell(itemID)` to find their spell. The base is re-read live at every export, so a
+   `/reload` or login with a new game value replaces the old one.
+3. **table**: the shipped item table (now ranked below the game's base value).
+Spells with charges (`C_Spell.GetSpellCharges` reports `maxCharges` > 1) export `maxCharges` and **no** timer. A key
+press the game refuses (mana, range, global cooldown, dead) can still start a false controller timer. `/sdock cdprobe`
+prints, for every filled slot, the raw base return values, learned/shipped lengths, whether the cooldown reads are plain or
+sealed, and what the export currently carries.

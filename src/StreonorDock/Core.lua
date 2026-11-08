@@ -284,12 +284,18 @@ function Core.buildExport(state, now, issecret, providers, previous)
                     elseif source=="used" then
                         out.source=source  -- pressed, length unknown: no countdown claimed
                     end
-                    -- Known press-timer length for the controller plugin (never invented).
-                    local secs, origin, pool = plain(data.cooldownSeconds), plain(data.cooldownSource), plain(data.poolKey)
-                    if number(secs) and secs>1.5 and secs<=86400 and (origin=="learned" or origin=="verified" or origin=="table") then
-                        out.cooldownSeconds=secs; out.cooldownSource=origin
-                        if type(pool)=="string" and #pool<=64 and string.match(pool,"^[%w_:]+$") then out.poolKey=pool end
-                    end
+                end
+                -- Known press-timer length for the controller plugin (never invented; spells too).
+                local secs, origin, pool = plain(data.cooldownSeconds), plain(data.cooldownSource), plain(data.poolKey)
+                local charges = plain(data.maxCharges)
+                if integer(charges) and charges>=2 and charges<=20 then out.maxCharges=charges end
+                local validOrigin = origin=="learned" or origin=="verified" or origin=="base" or origin=="category" or origin=="table"
+                if number(secs) and secs>1.5 and secs<=86400 and validOrigin and not out.maxCharges then
+                    out.cooldownSeconds=secs; out.cooldownSource=origin
+                    if plain(data.verified)==true then out.verified=true end
+                    local cat = plain(data.categorySeconds)
+                    if number(cat) and cat>1.5 and cat<=86400 then out.categorySeconds=cat end
+                    if type(pool)=="string" and #pool<=64 and string.match(pool,"^[%w_:]+$") then out.poolKey=pool end
                 end
             end
             result[area][i]=out
