@@ -164,3 +164,13 @@ Assumption updates (replace items 1 and 4 above):
 ## Client logging switches (2026-11-08)
 - Init.lua applies LoggingChat/LoggingCombat once per session (guarded, pcall, read-back via C_ChatInfo when present);
   settings logChat/logCombat default true; `/sdock log`. Tests: 68 / 3680 assertions. Forever behavior unverified in game.
+
+## Currency and money readouts (2026-11-08)
+- Readout slots accept {kind="currency",currencyID} and {kind="money"} (Core.slot/forArea). Click a readout -> custom
+  plain-frame picker (Panel.OpenPicker): Empty, Money, then Export.ListCurrencies() (C_CurrencyInfo list, headers
+  skipped, discovered==false skipped, collapsed headers expanded then re-collapsed deepest first, never in combat).
+- Export: currency {currencyID,name,iconFileID,quantity,maxQuantity?}, money {copper}; stale/teardown rebuilds reuse the previous
+  quantity/name/icon (same rule as item counts). Events: CURRENCY_DISPLAY_UPDATE and PLAYER_MONEY refresh the panel and use the
+  existing 1s debounce. PLAYER_REGEN_DISABLED closes the picker. Probe lists the four C_CurrencyInfo functions.
+- Tests: tests/currency_spec.lua (fake C_CurrencyInfo in Host.lua). Unverified in game: the picker layout, ExpandCurrencyList behavior,
+  whether Honor appears in the currency list on Forever.

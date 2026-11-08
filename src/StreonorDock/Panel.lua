@@ -63,7 +63,13 @@ local function onEnter(self)
         shown = pcall(GameTooltip.SetItemByID, GameTooltip, value.id or value.itemID)
     end
     if not shown then
-        GameTooltip:SetText(self.area=="readouts" and "Readout (items only)" or ("Key " .. self.index))
+        local title = self.area=="readouts" and "Readout" or ("Key " .. self.index)
+        if value and value.kind=="money" then title = "Money"
+        elseif value and value.kind=="currency" then
+            local meta = ns.Export.CurrencyMeta(value.currencyID)
+            title = meta and meta.name or ("Currency " .. value.currencyID)
+        end
+        GameTooltip:SetText(title)
     end
     if self.area=="slots" then GameTooltip:AddLine("Chord: " .. ns.Core.chord(self.index), 0.8, 0.8, 1) end
     if value and value.kind=="item" then
@@ -71,8 +77,11 @@ local function onEnter(self)
         if source=="est" then GameTooltip:AddLine("Cooldown: estimate (est)", 1, 0.82, 0)
         elseif source=="used" then GameTooltip:AddLine("Used; cooldown length unknown", 1, 0.82, 0) end
     end
-    GameTooltip:AddLine(value and value.kind~="empty" and "Right-click: clear" or "Drop a " ..
-        (self.area=="readouts" and "bag item" or "spell or bag item") .. " here (out of combat)", 0.6, 1, 0.6)
+    if self.area=="readouts" then
+        GameTooltip:AddLine("Click: pick money, a currency or empty. Drop a bag item here. Right-click: clear (out of combat)", 0.6, 1, 0.6)
+    else
+        GameTooltip:AddLine(value and value.kind~="empty" and "Right-click: clear" or "Drop a spell or bag item here (out of combat)", 0.6, 1, 0.6)
+    end
     GameTooltip:Show()
 end
 local function onLeave() if GameTooltip then GameTooltip:Hide() end end
@@ -105,9 +114,88 @@ local function onClick(self, mouse)
             else ns.Edit(self.area, self.index, {kind="empty"}) end
         elseif holding then
             Panel.Drop(self)
+        elseif self.area=="readouts" then
+            Panel.OpenPicker(self)
         end
         if has(GameTooltip, "IsOwned") and GameTooltip:IsOwned(self) then onEnter(self) end
     end)
+end
+
+-- Readout picker: a small custom list (plain frames only: nothing secure, nothing tainted).
+-- It lists Empty, Money and the currencies the character has right now (read when it opens).
+local picker, pickerRows, pickerTarget
+local ROW_H, PICK_W, MAX_ROWS = 20, 230, 14
+local COIN = "Interface\\Icons\\INV_Misc_Coin_01"
+local function closePicker() if picker and picker:IsShown() then picker:Hide() end; pickerTarget=nil end
+Panel.ClosePicker = closePicker
+local function pickerRow(i)
+    local row = pickerRows[i]
+    if row then return row end
+    row = CreateFrame("Button", nil, picker.child)
+    row:SetSize(PICK_W - 34, ROW_H)
+    row:SetPoint("TOPLEFT", picker.child, "TOPLEFT", 0, -(i-1)*ROW_H)
+    if has(row, "SetHighlightTexture") then row:SetHighlightTexture("Interface\\Buttons\\UI-Listbox-Highlight2", "ADD") end
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(16, 16); row.icon:SetPoint("LEFT", 2, 0)
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.text:SetPoint("LEFT", 22, 0); row.text:SetPoint("RIGHT", -2, 0)
+    if has(row.text, "SetJustifyH") then row.text:SetJustifyH("LEFT") end
+    row:SetScript("OnClick", function(self)
+        ns.Safe("picker pick", function()
+            local target = pickerTarget
+            closePicker()
+            if target then ns.Edit("readouts", target.index, self.choice) end
+        end)
+    end)
+    pickerRows[i] = row
+    return row
+end
+local function ensurePicker()
+    if picker then return picker end
+    pickerRows = {}
+    picker = make("Frame", "StreonorDockPicker", UIParent, "BackdropTemplate")
+    picker:SetSize(PICK_W, 100)
+    picker:SetFrameStrata("DIALOG")
+    picker:EnableMouse(true)
+    if has(picker, "SetBackdrop") then
+        picker:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", tile=true, tileSize=16, edgeSize=16,
+            insets={left=4,right=4,top=4,bottom=4}})
+    end
+    local scroll = make("ScrollFrame", "StreonorDockPickerScroll", picker, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 8, -8); scroll:SetPoint("BOTTOMRIGHT", -26, 8)
+    picker.child = CreateFrame("Frame", nil, scroll)
+    picker.child:SetSize(PICK_W - 34, 10)
+    if has(scroll, "SetScrollChild") then scroll:SetScrollChild(picker.child) end
+    picker:Hide()
+    return picker
+end
+function Panel.OpenPicker(button)
+    if InCombatLockdown() then ns.Say("editing unavailable in combat"); return false end
+    ensurePicker()
+    if picker:IsShown() and pickerTarget==button then closePicker(); return true end
+    pickerTarget = button
+    local choices = {{label="Empty", choice={kind="empty"}},
+        {label="Money (gold)", choice={kind="money"}, icon=COIN}}
+    for _, c in ipairs(ns.Export.ListCurrencies()) do
+        choices[#choices+1] = {label=c.name .. (c.quantity and ("  (" .. c.quantity .. ")") or ""),
+            choice={kind="currency", currencyID=c.id}, icon=c.iconFileID}
+    end
+    Panel.pickerChoices = choices
+    for i, entry in ipairs(choices) do
+        local row = pickerRow(i)
+        row.choice = entry.choice
+        row.text:SetText(entry.label)
+        if entry.icon then row.icon:SetTexture(entry.icon); row.icon:Show() else row.icon:Hide() end
+        row:Show()
+    end
+    for i=#choices+1, #pickerRows do pickerRows[i]:Hide() end
+    picker.child:SetSize(PICK_W - 34, #choices*ROW_H)
+    picker:SetSize(PICK_W, math.min(#choices, MAX_ROWS)*ROW_H + 18)
+    picker:ClearAllPoints()
+    picker:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -2)
+    picker:Show()
+    return true
 end
 
 local function createSlot(area, index, x, y)
@@ -185,7 +273,7 @@ function Panel.Create()
         createSlot("slots", i, left + col*(SLOT+GAP), gridTop - row*(SLOT+GAP))
     end
     local label = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    label:SetPoint("TOPLEFT", left, readTop + 14); label:SetText("Readouts (items)")
+    label:SetPoint("TOPLEFT", left, readTop + 14); label:SetText("Readouts (click: money / currency)")
     for i=1,3 do createSlot("readouts", i, left + (i-1)*(SLOT+GAP), readTop) end
     restorePosition()
     if ui().shown then frame:Show() else frame:Hide() end
@@ -204,8 +292,18 @@ local function refreshSlot(b)
         icon = iconID or QUESTION
         count = ns.Export.ItemCount(itemID)
     end
+    local countText = count and tostring(count) or ""
+    if value and value.kind=="money" then
+        icon = "Interface\Icons\INV_Misc_Coin_01"
+        local copper = ns.Export.Money()
+        countText = copper and (tostring(math.floor(copper/10000)) .. "g") or ""
+    elseif value and value.kind=="currency" then
+        local meta = ns.Export.CurrencyMeta(value.currencyID)
+        icon = meta and meta.iconFileID or QUESTION
+        countText = meta and meta.quantity and tostring(meta.quantity) or ""
+    end
     if icon then b.icon:SetTexture(icon); b.icon:Show() else b.icon:Hide() end
-    b.count:SetText(count and tostring(count) or "")
+    b.count:SetText(countText)
 end
 -- Re-read only the given slots (late metadata callbacks pass Core.findSlots matches).
 function Panel.RefreshSlots(list)
@@ -273,6 +371,11 @@ function Panel.RefreshCooldowns()
     schedule(soonest)
 end
 
+-- Values only (money/currency events): readouts redraw, nothing else.
+function Panel.RefreshReadouts()
+    if not frame or not slots.readouts then return end
+    for _, b in ipairs(slots.readouts) do refreshSlot(b) end
+end
 function Panel.Refresh()
     if not frame then return end
     local state = ns.state

@@ -278,15 +278,76 @@ function Export.Money()
     return money
 end
 
+-- Currencies (C_CurrencyInfo; every field guarded, probed rather than assumed).
+local function currencyApi() return lib("C_CurrencyInfo") end
+-- Plain table of the fields we use from a CurrencyInfo, or nil.
+local function cleanCurrency(info)
+    info = plain(info)
+    if type(info)~="table" then return nil end
+    local out = {}
+    local name = plain(info.name)
+    if type(name)=="string" and name~="" then out.name=name end
+    out.currencyID = positiveInteger(info.currencyID)
+    out.iconFileID = positiveInteger(info.iconFileID)
+    local q, m = finite(info.quantity), finite(info.maxQuantity)
+    if q and q>=0 and q==math.floor(q) then out.quantity=q end
+    if m and m>0 and m==math.floor(m) then out.maxQuantity=m end
+    out.isHeader = plain(info.isHeader)==true
+    out.discovered = plain(info.discovered)
+    return out
+end
+function Export.CurrencyMeta(currencyID)
+    if not positiveInteger(currencyID) then return nil end
+    local ok, info = call(currencyApi().GetCurrencyInfo, currencyID)
+    if not ok then return nil end
+    return cleanCurrency(info)
+end
+-- Currencies the character has right now, in the game's own list order: {id, name, iconFileID,
+-- quantity}. Collapsed headers are expanded to read their children and then collapsed again
+-- (deepest first) so the player's currency tab looks unchanged. Never runs in combat.
+function Export.ListCurrencies()
+    local api = currencyApi()
+    local list = {}
+    if type(api.GetCurrencyListSize)~="function" or type(api.GetCurrencyListInfo)~="function"
+        or (type(InCombatLockdown)=="function" and InCombatLockdown()) then return list end
+    local expanded = {}
+    local seen = {}
+    local index, guard = 1, 0
+    while guard<2000 do
+        guard = guard+1
+        local okSize, size = call(api.GetCurrencyListSize)
+        size = okSize and finite(size) or 0
+        if index>size then break end
+        local ok, info = call(api.GetCurrencyListInfo, index)
+        local c = ok and cleanCurrency(info) or nil
+        if c then
+            if c.isHeader then
+                local okHead, info2 = ok, plain(info)
+                if type(info2)=="table" and plain(info2.isHeaderExpanded)==false and type(api.ExpandCurrencyList)=="function" then
+                    if call(api.ExpandCurrencyList, index, true) then expanded[#expanded+1]=index end
+                end
+            elseif c.currencyID and c.name and c.discovered~=false and not seen[c.currencyID] then
+                seen[c.currencyID]=true
+                list[#list+1]={id=c.currencyID, name=c.name, iconFileID=c.iconFileID, quantity=c.quantity}
+            end
+        end
+        index = index+1
+    end
+    for i=#expanded,1,-1 do call(api.ExpandCurrencyList, expanded[i], false) end
+    return list
+end
+
 -- Raw provider tables for Core.buildExport; sanitized by Export.Collect before Core sees them.
 local function rawProviders()
-    local spells, items = {}, {}
+    local spells, items, currencies = {}, {}, {}
     local state, tracker = ns.state, ns.cooldowns
     local page = state.pages[state.currentPage]
     local now, serverNow = Export.Now(), Export.ServerNow()
     for _, area in ipairs({"slots","readouts"}) do
         for _, value in ipairs(page[area]) do
-            if value.kind=="spell" and not spells[value.id] then
+            if value.kind=="currency" and not currencies[value.currencyID] then
+                currencies[value.currencyID] = Export.CurrencyMeta(value.currencyID) or {}
+            elseif value.kind=="spell" and not spells[value.id] then
                 local name, icon = Export.SpellMeta(value.id)
                 spells[value.id] = {name=name, iconFileID=icon}
             elseif value.kind=="item" then
@@ -317,7 +378,7 @@ local function rawProviders()
             end
         end
     end
-    return {spells=spells, items=items, player={moneyCopper=Export.Money(), freeBagSlots=Export.FreeBagSlots()}}
+    return {spells=spells, items=items, currencies=currencies, player={moneyCopper=Export.Money(), freeBagSlots=Export.FreeBagSlots()}}
 end
 function Export.Collect()
     if teardown then return {teardown=true} end

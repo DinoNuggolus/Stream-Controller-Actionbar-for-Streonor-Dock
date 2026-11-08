@@ -26,7 +26,17 @@ Game Menu > Key Bindings > StreonorDock.
 | `/sdock estimates on\|off\|auto` | Press-started timer estimates (auto = off once a readable item cooldown is seen in combat) |
 | `/sdock export` | Print one line from the current in-memory snapshot: money present, free slots, item counts by slot/readout, savedAt, countsStale; never rebuilds or prints sealed values |
 
-Editor: drag a spell (spellbook) or bag item onto a key; readouts take bag items only. Right-click
+Readouts show money or a currency: LEFT-CLICK a readout slot to open a pick list with Empty, Money,
+and every currency the character has right now (the game's own currency list, discovered ones only,
+including zero-quantity ones; collapsed groups are read and collapsed again). Picking assigns it to
+that readout and the choice is saved per character like the key slots. Bag items can still be
+dropped on a readout. Export shape: `{kind="currency", currencyID, name, iconFileID, quantity,
+maxQuantity?}` and `{kind="money", copper}`. Values are exact at save time (/reload or logout);
+the S15 plugin estimates movement between saves from the client chat log and snaps back to the exact
+value on the next save. The list needs `C_CurrencyInfo.GetCurrencyListSize/GetCurrencyListInfo`
+(see `/sdock probe`); without them only Empty and Money are offered.
+
+Editor: drag a spell (spellbook) or bag item onto a key; readouts take bag items. Right-click
 clears (editor widgets are plain buttons and never cast). Edits and paging are rejected in combat
 with a chat message, never queued.
 
@@ -58,7 +68,7 @@ SavedVariables:
 
 Snapshot `StreonorDockDB.export`, schema 1:
 `{schema=1, profileId, revision, savedAt, page={index,count}, slots[1..15], readouts[1..3], player?, countsStale?}`.
-Empty = `{kind="empty"}`. Keys add `id, chord`; readouts add `itemID`. Optional: `name`,
+Empty = `{kind="empty"}`. Keys add `id, chord`; readouts add `itemID` (items), or are currency/money entries (see above). Optional: `name`,
 `iconFileID`, items `count`, `source` (`game`/`est`/`used`) and `endsAt` (server seconds).
 `player = {moneyCopper, freeBagSlots}` when readable. No character/realm names, no spell
 cooldowns, no secret values; unavailable fields are normally omitted. During teardown, or when

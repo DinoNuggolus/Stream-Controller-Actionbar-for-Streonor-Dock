@@ -137,6 +137,27 @@ function ns.host(options)
         end,
         RequestLoadItemDataByID=function(id) h.requests[#h.requests+1]="item:" .. id end,
     }
+    -- Currency list model: h.currencies = array of CurrencyInfo-like rows (headers collapse their
+    -- children; the fake honours ExpandCurrencyList so tests can prove the collapse state is restored).
+    h.currencies = options.currencies or {}
+    h.expandCalls = {}
+    local function visible()
+        local rows, hidden = {}, false
+        for i, c in ipairs(h.currencies) do
+            if c.isHeader then rows[#rows+1] = c; hidden = c.isHeaderExpanded == false
+            elseif not hidden then rows[#rows+1] = c end
+        end
+        return rows
+    end
+    env.C_CurrencyInfo = {
+        GetCurrencyListSize = function() return #visible() end,
+        GetCurrencyListInfo = function(i) local c = visible()[i]; if c then return ns.copy(c) end end,
+        GetCurrencyInfo = function(id) for _, c in ipairs(h.currencies) do if c.currencyID == id and not c.isHeader then return ns.copy(c) end end end,
+        ExpandCurrencyList = function(i, expand)
+            h.expandCalls[#h.expandCalls+1] = {i, expand}
+            local c = visible()[i]; if c then c.isHeaderExpanded = expand end
+        end,
+    }
     env.C_Container = {GetContainerNumFreeSlots=function(bag) return bag==0 and 7 or 2, 0 end}
     env.C_Timer = {After=function(delay, fn) h.timers[#h.timers+1]={delay=delay, fn=fn} end,
         NewTimer=function(delay, fn) local t={delay=delay, fn=fn}; function t:Cancel() self.cancelled=true end
@@ -149,7 +170,7 @@ function ns.host(options)
         SetOverrideBindingClick=true, ClearOverrideBindings=true, GetBindingAction=true, issecretvalue=true,
         C_Spell=true, C_Item=true, C_Container=true, C_Timer=true, GetCVarBool=true, GetServerTime=true,
         GetTime=true, GetMoney=true, GetCursorInfo=true, ClearCursor=true, GameTooltip=true,
-        LoggingChat=true, LoggingCombat=true, C_ChatInfo=true}
+        LoggingChat=true, LoggingCombat=true, C_ChatInfo=true, C_CurrencyInfo=true}
     setmetatable(env, {__index=function(_, key)
         if not allowed[key] then error("unexpected global " .. tostring(key), 2) end
     end})

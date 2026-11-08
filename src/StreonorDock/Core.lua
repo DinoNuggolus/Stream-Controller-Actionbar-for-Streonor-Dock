@@ -10,6 +10,11 @@ local function tableOrEmpty(v) if type(v)=="table" then return v end; return {} 
 local function slot(value, readout)
     if type(value)~="table" then return nil end
     if value.kind=="empty" then return {kind="empty"} end
+    if readout and value.kind=="money" then return {kind="money"} end
+    if readout and value.kind=="currency" then
+        if id(value.currencyID) then return {kind="currency", currencyID=value.currencyID} end
+        return nil
+    end
     if value.kind=="item" then
         local field = readout and "itemID" or "id"
         if id(value[field]) then return {kind="item", [field]=value[field]} end
@@ -29,6 +34,16 @@ local function page(value)
         end
     end
     return result
+end
+-- Compact money text: 12g 34s 56c (zero parts dropped except a lone 0c).
+function Core.formatMoney(copper)
+    if not integer(copper) or copper<0 then return "?" end
+    local g, sv, c = math.floor(copper/10000), math.floor(copper/100)%100, copper%100
+    local out = {}
+    if g>0 then out[#out+1]=g .. "g" end
+    if sv>0 then out[#out+1]=sv .. "s" end
+    if c>0 or #out==0 then out[#out+1]=c .. "c" end
+    return table.concat(out," ")
 end
 function Core.chord(index)
     if integer(index) and index>=1 and index<=15 then return "ALT-CTRL-SHIFT-" .. keys[index] end
@@ -126,6 +141,8 @@ function Core.forArea(value, area)
     if area=="readouts" then
         if value.kind=="item" and id(value.id) then return {kind="item",itemID=value.id} end
         if value.kind=="empty" then return {kind="empty"} end
+        if value.kind=="money" then return {kind="money"} end
+        if value.kind=="currency" and id(value.currencyID) then return {kind="currency",currencyID=value.currencyID} end
         return nil,"items-only"
     end
     return value
@@ -204,7 +221,7 @@ function Core.buildExport(state, now, issecret, providers, previous)
     local money, free = plain(player.moneyCopper), plain(player.freeBagSlots)
     local stale = plain(providers.teardown)==true or (money==0 and free==0)
     previous=record(previous)
-    local oldCounts={}
+    local oldCounts, oldQuantity, oldMeta={}, {}, {}
     if stale then
         if plain(previous.profileId)==state.profileId then
             for _, area in ipairs({"slots","readouts"}) do
@@ -212,6 +229,8 @@ function Core.buildExport(state, now, issecret, providers, previous)
                     entry=record(entry)
                     local itemID=plain(entry.id) or plain(entry.itemID)
                     local count=plain(entry.count)
+                    local cid, qty=plain(entry.currencyID), plain(entry.quantity)
+                    if plain(entry.kind)=="currency" and id(cid) and integer(qty) and qty>=0 then oldQuantity[cid]=qty; oldMeta[cid]=entry end
                     if plain(entry.kind)=="item" and id(itemID) and integer(count) and count>=0 then
                         oldCounts[itemID]=count
                     end
@@ -222,6 +241,7 @@ function Core.buildExport(state, now, issecret, providers, previous)
         money, free=plain(player.moneyCopper),plain(player.freeBagSlots)
     end
     local items, spells = record(providers.items),record(providers.spells)
+    local currencies = record(providers.currencies)
     local result = {schema=1,profileId=state.profileId,revision=state.revision,
         page={index=state.currentPage,count=#state.pages},slots={},readouts={}}
     if stale then result.countsStale=true end
@@ -231,7 +251,23 @@ function Core.buildExport(state, now, issecret, providers, previous)
     for _, area in ipairs({"slots","readouts"}) do
         for i, value in ipairs(current[area]) do
             local out={kind=value.kind}
-            if value.kind~="empty" then
+            if value.kind=="money" then
+                -- Exact copper at save time; omitted when unknown (never a teardown zero: see stale above).
+                if integer(money) and money>=0 then out.copper=money end
+            elseif value.kind=="currency" then
+                out.currencyID=value.currencyID
+                local data=record(currencies[value.currencyID])
+                local name, icon, qty, maxQty = plain(data.name), plain(data.iconFileID), plain(data.quantity), plain(data.maxQuantity)
+                if stale then
+                    qty=oldQuantity[value.currencyID]
+                    local old=oldMeta[value.currencyID]
+                    if old then name=name or plain(old.name); icon=icon or plain(old.iconFileID); maxQty=maxQty or plain(old.maxQuantity) end
+                end
+                if type(name)=="string" and name~="" then out.name=name end
+                if id(icon) then out.iconFileID=icon end
+                if integer(qty) and qty>=0 then out.quantity=qty end
+                if integer(maxQty) and maxQty>0 then out.maxQuantity=maxQty end
+            elseif value.kind~="empty" then
                 local itemID = value.id or value.itemID
                 if area=="slots" then out.id=itemID; out.chord=Core.chord(i) else out.itemID=itemID end
                 local data=record((value.kind=="item" and items or spells)[itemID])

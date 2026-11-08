@@ -202,7 +202,18 @@ function handlers.BAG_UPDATE_DELAYED()
     ns.Export.MarkDirty()
 end
 function handlers.PLAYER_MONEY()
-    if loaded then ns.Export.MarkDirty() end
+    if not loaded then return end
+    ns.Safe("readouts", ns.Panel.RefreshReadouts)
+    ns.Export.MarkDirty()
+end
+function handlers.CURRENCY_DISPLAY_UPDATE()
+    if not loaded then return end
+    ns.Safe("readouts", ns.Panel.RefreshReadouts)
+    ns.Export.MarkDirty()
+end
+function handlers.PLAYER_REGEN_DISABLED()
+    -- The picker edits layout, which is out-of-combat only: close it when combat starts.
+    if loaded then ns.Safe("picker", ns.Panel.ClosePicker) end
 end
 function handlers.PLAYER_LEAVING_WORLD()
     if loaded then ns.Safe("export leaving", ns.Export.LeavingWorld) end
@@ -261,8 +272,16 @@ local function probe()
     show("C_Item.GetItemSpell",items.GetItemSpell)
     show("C_Container.GetContainerNumFreeSlots",container.GetContainerNumFreeSlots)
     show("C_Timer.NewTimer",timer.NewTimer)
+    local currency = lib("C_CurrencyInfo")
+    show("C_CurrencyInfo.GetCurrencyListSize",currency.GetCurrencyListSize)
+    show("C_CurrencyInfo.GetCurrencyListInfo",currency.GetCurrencyListInfo)
+    show("C_CurrencyInfo.GetCurrencyInfo",currency.GetCurrencyInfo)
+    show("C_CurrencyInfo.ExpandCurrencyList",currency.ExpandCurrencyList)
     show("GetServerTime",GetServerTime); show("GetTime",GetTime); show("GetMoney",GetMoney)
     show("GetCVarBool",GetCVarBool)
+    if type(currency.GetCurrencyListSize)=="function" and not InCombatLockdown() then
+        say("currencies available to pick now: " .. #ns.Export.ListCurrencies())
+    end
     if type(GetCVarBool)=="function" then
         local ok, value = pcall(GetCVarBool, "ActionButtonUseKeyDown")
         say("ActionButtonUseKeyDown: " .. (ok and plainText(value) or "unreadable"))
@@ -365,7 +384,7 @@ local function estimates(arg)
 end
 local function help()
     say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | log [chat|combat on|off] | help")
-    say("Drag a spell or bag item onto a key (readouts: items only); right-click clears. Out of combat only.")
+    say("Drag a spell or bag item onto a key; click a readout to pick money or a currency; right-click clears. Out of combat only.")
     say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
 SLASH_STREONORDOCK1="/sdock"
