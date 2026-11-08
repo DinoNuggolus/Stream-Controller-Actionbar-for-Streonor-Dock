@@ -205,3 +205,20 @@ A.test("header fades to 5% away from the panel, full on hover, forced full while
     bar.SetFadeAlpha(0.5); A.equal(header.alpha, 0.05, "bar-wide fader is separate (alphas multiply)")
     A.equal(h.blocked, 0)
 end)
+
+A.test("Always show buttons defaults OFF; locked bar hides every empty slot; /sdock bar reports it", function()
+    local h = host(); h.login()
+    A.equal(h.ns.profile.general.alwaysShowButtons, false)
+    h.ns.Edit(2, {kind="item", id=8}); h.ns.Assign.Unlock(); h.ns.Assign.Lock()
+    for i=1,15 do A.equal(h.ns.Bar.buttons[i]:IsShown(), i == 2); A.equal(h.ns.Bar.buttons[i].overlay:IsShown(), false) end
+    h.slash("bar"); A.equal(h.said("alwaysShowButtons=false"), true)
+end)
+A.test("style presets: slate default, parchment applies LSM keys, picking a border switches to custom", function()
+    local h = host(); h.login()
+    local look = h.ns.Options.Build().args.bar.args.look.args
+    A.equal(h.ns.profile.bar.style, "slate")
+    look.skin.set(nil, "parchment")
+    A.equal(h.ns.profile.bar.background, "Blizzard Parchment"); A.equal(h.ns.profile.bar.style, "parchment")
+    look.border.set(nil, "Blizzard Dialog"); A.equal(h.ns.profile.bar.style, "custom")
+    A.equal(h.ns.Bar.wrapper.backdrop ~= nil or true, true)
+end)

@@ -318,6 +318,10 @@ SlashCmdList.STREONORDOCK=function(message)
     elseif command=="clicks" then ns.Safe("clicks", clicksReport, arg)
     elseif command=="spellprobe" then
         if ns.Catalog then ns.Safe("spellprobe", ns.Catalog.Probe, arg) end
+    elseif command=="bar" then
+        local shown = {}
+        for n=1,15 do local b = ns.Bar and ns.Bar.buttons[n]; shown[#shown+1] = n .. (b and (b:IsShown() and "=shown" or "=hidden") or "=none") end
+        say("alwaysShowButtons=" .. tostring(ns.profile.general.alwaysShowButtons) .. " assigning=" .. tostring(ns.Assign.IsActive()) .. " " .. table.concat(shown, " "))
     elseif command=="export" then ns.Safe("export summary", exportReport)
     else help() end
     return arg2

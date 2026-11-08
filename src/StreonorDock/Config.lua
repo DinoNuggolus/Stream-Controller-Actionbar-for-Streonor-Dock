@@ -15,7 +15,7 @@ Config.defaults = {
         bar = {scale=1, buttonSize=40, spacing=4, orientation="horizontal", columns=5,
             mirrorControllerLayout=true, growX="right", growY="down", backgroundOpacity=0.65,
             borderStyle="thin", showPageIndicator=true,
-            border="Blizzard Tooltip", background="Blizzard Dialog Background", font="Friz Quadrata TT",
+            style="slate", border="Blizzard Tooltip", background="Blizzard Dialog Background Dark", font="Friz Quadrata TT",
             statusbar="Blizzard", visibility={},
             headerFade=true, headerFadedAlpha=0.05, headerFadeDuration=0.15},
         buttons = {stackCounts=true, cooldownGrayscale=true, cooldownSweep=true, cooldownNumbers=true,
@@ -47,7 +47,7 @@ local E = {
     {"bar","growY","enum",{"up","down"}}, {"bar","backgroundOpacity","num",0,1},
     {"bar","borderStyle","enum",{"none","thin","glow"}}, {"bar","showPageIndicator","bool"},
     {"bar","headerFade","bool"}, {"bar","headerFadedAlpha","num",0,1}, {"bar","headerFadeDuration","num",0,2},
-    {"bar","border","string"}, {"bar","background","string"}, {"bar","font","string"}, {"bar","statusbar","string"},
+    {"bar","style","enum",{"slate","parchment","custom"}}, {"bar","border","string"}, {"bar","background","string"}, {"bar","font","string"}, {"bar","statusbar","string"},
     {"buttons","stackCounts","bool"}, {"buttons","cooldownGrayscale","bool"}, {"buttons","cooldownSweep","bool"},
     {"buttons","cooldownNumbers","bool"}, {"buttons","tooltips","bool"}, {"buttons","pressedFlash","bool"},
     {"buttons","rangeTint","bool"}, {"buttons","unusableTint","bool"}, {"buttons","showGCD","bool"},
@@ -57,6 +57,14 @@ local E = {
     {"highlight","style","enum",{"pixel","autocast","button","proc"}},
 }
 Config.SPEC = E
+-- Look presets (LibSharedMedia keys + tints). Picking a border/background yourself switches to "custom".
+Config.STYLES = {
+    slate = {label = "Slate", background = "Blizzard Dialog Background Dark", border = "Blizzard Tooltip",
+        tint = {0.62, 0.68, 0.85}, edge = {0.62, 0.65, 0.75}, header = {0, 0, 0, 0.55}},
+    parchment = {label = "Parchment-lite", background = "Blizzard Parchment", border = "Blizzard Tooltip",
+        tint = {0.55, 0.47, 0.36}, edge = {0.85, 0.70, 0.38}, header = {0.15, 0.10, 0.04, 0.6}},
+    custom = {label = "Custom", tint = {0.62, 0.68, 0.85}, edge = {0.62, 0.65, 0.75}, header = {0, 0, 0, 0.55}},
+}
 local function member(list, v) for _, x in ipairs(list) do if x==v then return true end end end
 local function valid(spec, v)
     local kind = spec[3]

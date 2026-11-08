@@ -130,9 +130,18 @@ function Options.Build()
         }},
         look = {type = "group", name = "Appearance", order = nextOrder(), args = {
             opacity = range("bar", "backgroundOpacity", "Background opacity", "Opacity of the bar's background fill.", 0, 1, 0.01, {isPercent = true}),
+            skin = {type = "select", name = "Style", order = nextOrder(), desc = "A look preset: it sets the border, background and tint. Choosing a border or background yourself switches to Custom.",
+                values = function() local v = {}; for k, s in pairs(ns.Config.STYLES) do v[k] = s.label end; return v end,
+                get = function() return ns.profile.bar.style end,
+                set = function(_, v)
+                    local bar, preset = ns.profile.bar, ns.Config.STYLES[v]
+                    bar.style = v
+                    if preset and preset.background then bar.background, bar.border = preset.background, preset.border end
+                    changed("bar"); Options.Notify()
+                end},
             style = select_("bar", "borderStyle", "Border style", "", {none = "None", thin = "Thin", glow = "Glow (highlight colour)"}),
-            border = select_("bar", "border", "Border", "Border texture (LibSharedMedia).", lsmHash("border"), {dialogControl = "LSM30_Border"}),
-            background = select_("bar", "background", "Background", "Background texture (LibSharedMedia).", lsmHash("background"), {dialogControl = "LSM30_Background"}),
+            border = select_("bar", "border", "Border", "Border texture (LibSharedMedia).", lsmHash("border"), {dialogControl = "LSM30_Border", set = function(_, v) ns.profile.bar.border = v; ns.profile.bar.style = "custom"; changed("bar") end}),
+            background = select_("bar", "background", "Background", "Background texture (LibSharedMedia).", lsmHash("background"), {dialogControl = "LSM30_Background", set = function(_, v) ns.profile.bar.background = v; ns.profile.bar.style = "custom"; changed("bar") end}),
             font = select_("bar", "font", "Font", "Font for the page indicator (LibSharedMedia).", lsmHash("font"), {dialogControl = "LSM30_Font"}),
             statusbar = select_("bar", "statusbar", "Status bar texture", "Reserved for bar-style elements (LibSharedMedia).", lsmHash("statusbar"), {dialogControl = "LSM30_Statusbar"}),
             hfade = toggle("bar", "headerFade", "Fade header when not hovered", "The padlock/cog header fades when the mouse is away from the bar and returns on mouseover. Always fully visible while assigning. It multiplies with the bar-wide fader (the header is a child of the bar)."),

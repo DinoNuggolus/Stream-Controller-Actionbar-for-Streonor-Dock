@@ -262,24 +262,34 @@ end
 function Bar.ApplyAppearance()
     local p = profile()
     if not wrapper or not p or not has(wrapper, "SetBackdrop") then return end
-    local b = p.bar
-    local style = b.borderStyle
-    local backdrop = {bgFile = fetch("background", b.background, WHITE), tile = true, tileSize = 16,
+    local bar = p.bar
+    local preset = ns.Config.STYLES[bar.style] or ns.Config.STYLES.slate
+    local borderStyle = bar.borderStyle
+    local backdrop = {bgFile = fetch("background", bar.background, WHITE), tile = true, tileSize = 128,
         insets = {left = 3, right = 3, top = 3, bottom = 3}}
-    if style ~= "none" then
-        backdrop.edgeFile = fetch("border", b.border, "Interface\\Tooltips\\UI-Tooltip-Border")
-        backdrop.edgeSize = style == "glow" and 14 or 10
+    if borderStyle ~= "none" then
+        backdrop.edgeFile = fetch("border", bar.border, "Interface\Tooltips\UI-Tooltip-Border")
+        backdrop.edgeSize = borderStyle == "glow" and 14 or 12
     end
     wrapper:SetBackdrop(backdrop)
-    wrapper:SetBackdropColor(0.04, 0.05, 0.07, b.backgroundOpacity)
-    if style == "glow" then
+    wrapper:SetBackdropColor(preset.tint[1], preset.tint[2], preset.tint[3], bar.backgroundOpacity)
+    if borderStyle == "glow" then
         local c = p.highlight.color
-        wrapper:SetBackdropBorderColor(c[1], c[2], c[3], 0.9)
+        wrapper:SetBackdropBorderColor(c[1], c[2], c[3], 0.95)
     else
-        wrapper:SetBackdropBorderColor(0.55, 0.57, 0.62, style == "none" and 0 or 0.9)
+        wrapper:SetBackdropBorderColor(preset.edge[1], preset.edge[2], preset.edge[3], borderStyle == "none" and 0 or 0.95)
     end
-    local font = fetch("font", b.font)
-    if font and pageText and has(pageText, "SetFont") then pageText:SetFont(font, 10, "OUTLINE") end
+    -- Details!-style title bar: dark strip, thin accent line underneath, small title.
+    if header and header.strip then
+        header.strip:SetVertexColor(preset.header[1], preset.header[2], preset.header[3], preset.header[4])
+        header.line:SetVertexColor(preset.edge[1], preset.edge[2], preset.edge[3], 0.5)
+        header.baseStrip = preset.header
+    end
+    local font = fetch("font", bar.font)
+    if font then
+        if pageText and has(pageText, "SetFont") then pageText:SetFont(font, 10, "OUTLINE") end
+        if header and header.title and has(header.title, "SetFont") then header.title:SetFont(font, 10, "OUTLINE") end
+    end
 end
 
 -- ------------------------------------------------------------------ buttons
@@ -518,8 +528,16 @@ function Bar.Create()
     header:RegisterForDrag("LeftButton")
     local strip = header:CreateTexture(nil, "BACKGROUND")
     strip:SetTexture(WHITE); strip:SetPoint("TOPLEFT", 3, -3); strip:SetPoint("BOTTOMRIGHT", -3, 0)
-    strip:SetVertexColor(1, 1, 1, 0.06)
     header.strip = strip
+    local line = header:CreateTexture(nil, "BORDER")
+    line:SetTexture(WHITE); line:SetHeight(1)
+    line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 4, 0); line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -4, 0)
+    header.line = line
+    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("LEFT", header, "LEFT", 8, -1)
+    title:SetText("StreonorDock")
+    title:SetAlpha(0.7)
+    header.title = title
     header:SetScript("OnDragStart", function()
         if InCombatLockdown() then return end
         wrapper:StartMoving(); wrapper.isMoving = true
@@ -532,8 +550,6 @@ function Bar.Create()
     header:SetScript("OnMouseUp", function(_, mouse)
         if mouse == "RightButton" then ns.Safe("header rightclick", Bar.RightClick, "header", header, nil) end
     end)
-    header:SetScript("OnEnter", function(self) strip:SetVertexColor(1, 1, 1, 0.14) end)
-    header:SetScript("OnLeave", function(self) strip:SetVertexColor(1, 1, 1, 0.06) end)
     local cog = buildCog(header); cog:SetPoint("RIGHT", header, "RIGHT", -6, -1)
     cog.tip = function() return "Settings" end
     cog:SetScript("OnClick", function() if ns.Options then ns.Safe("open settings", ns.Options.Open) end end)
@@ -541,7 +557,7 @@ function Bar.Create()
     lock.tip = function() return assigning() and "Lock (finish assigning)" or "Unlock to assign spells and items" end
     lock:SetScript("OnClick", function() if ns.Assign then ns.Safe("toggle assign", ns.Assign.Toggle) end end)
     header.cog, header.padlock = cog, lock
-    local prev = CreateFrame("Button", nil, header); prev:SetSize(12, HEADER_H); prev:SetPoint("LEFT", header, "LEFT", 6, -1)
+    local prev = CreateFrame("Button", nil, header); prev:SetSize(12, HEADER_H); prev:SetPoint("LEFT", title, "RIGHT", 6, 0)
     local next = CreateFrame("Button", nil, header); next:SetSize(12, HEADER_H)
     pageText = header:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     pageText:SetPoint("LEFT", prev, "RIGHT", 2, 0)
