@@ -194,15 +194,37 @@ function Core.chordKey(index)
     local chord = Core.chord(index)
     return chord and string.match(chord,"^ALT%-CTRL%-SHIFT%-(.+)$")
 end
-function Core.buildExport(state, now, issecret, providers)
-    -- Rebuild from allowlisted fields every time; never merge a previous snapshot.
+function Core.buildExport(state, now, issecret, providers, previous)
+    -- Rebuild allowlisted fields; only suspicious count/player reads may use prior values.
     issecret = issecret or function() return false end
     local function plain(v) if not issecret(v) then return v end end
     local function record(v) v=plain(v); if type(v)=="table" then return v end; return {} end
     providers=record(providers)
+    local player = record(providers.player)
+    local money, free = plain(player.moneyCopper), plain(player.freeBagSlots)
+    local stale = plain(providers.teardown)==true or (money==0 and free==0)
+    previous=record(previous)
+    local oldCounts={}
+    if stale then
+        if plain(previous.profileId)==state.profileId then
+            for _, area in ipairs({"slots","readouts"}) do
+                for _, entry in pairs(record(previous[area])) do
+                    entry=record(entry)
+                    local itemID=plain(entry.id) or plain(entry.itemID)
+                    local count=plain(entry.count)
+                    if plain(entry.kind)=="item" and id(itemID) and integer(count) and count>=0 then
+                        oldCounts[itemID]=count
+                    end
+                end
+            end
+            player=record(previous.player)
+        else player={} end
+        money, free=plain(player.moneyCopper),plain(player.freeBagSlots)
+    end
     local items, spells = record(providers.items),record(providers.spells)
     local result = {schema=1,profileId=state.profileId,revision=state.revision,
         page={index=state.currentPage,count=#state.pages},slots={},readouts={}}
+    if stale then result.countsStale=true end
     local timestamp=plain(now)
     if integer(timestamp) and timestamp>=0 then result.savedAt=timestamp end
     local current=state.pages[state.currentPage]
@@ -218,6 +240,7 @@ function Core.buildExport(state, now, issecret, providers)
                 if id(icon) then out.iconFileID=icon end
                 if value.kind=="item" then
                     local count, endsAt, source=plain(data.count),plain(data.endsAt),plain(data.source)
+                    if stale then count=oldCounts[itemID] end
                     if integer(count) and count>=0 then out.count=count end
                     if source=="game" or source=="est" then
                         out.source=source
@@ -231,8 +254,7 @@ function Core.buildExport(state, now, issecret, providers)
         end
     end
     -- Optional ordinary player values (copper and free general bag slots); omitted when unknown.
-    local player, values = record(providers.player), nil
-    local money, free = plain(player.moneyCopper), plain(player.freeBagSlots)
+    local values
     if integer(money) and money>=0 then values = {moneyCopper=money} end
     if integer(free) and free>=0 then values = values or {}; values.freeBagSlots=free end
     result.player = values

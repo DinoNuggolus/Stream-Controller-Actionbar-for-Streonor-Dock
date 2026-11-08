@@ -1,7 +1,8 @@
 local addonName, ns = ...
 -- WoW data adapter. Every game read goes through here, is guarded with issecretvalue BEFORE any
 -- comparison, arithmetic or storage, and is sanitized again before Core sees it. Core never
--- receives a secret. Unavailable readings are omitted, never kept from an earlier read.
+-- receives a secret. Unavailable readings are omitted; suspicious teardown readings retain
+-- only prior allowlisted player/count values and set countsStale.
 -- Exported snapshot = StreonorDockDB.export (account-wide, no character names). It reaches disk
 -- only at /reload, logout or exit: consumers must label it "saved snapshot" and show its age.
 local Export = {}
@@ -12,6 +13,8 @@ local failed = {spell={}, item={}}      -- loads that reported failure this sess
 local attempts = {spell={}, item={}}    -- requests per ID this session (capped: no request loops)
 Export.MAX_REQUESTS = 3
 local dirtyScheduled = false
+local dirtyGeneration, worldGeneration = 0, 0
+local teardown = false
 
 function Export.issecret(value)
     if type(issecretvalue)~="function" then return false end
@@ -304,22 +307,58 @@ local function rawProviders()
     return {spells=spells, items=items, player={moneyCopper=Export.Money(), freeBagSlots=Export.FreeBagSlots()}}
 end
 function Export.Collect()
+    if teardown then return {teardown=true} end
     return ns.Core.sanitize(rawProviders(), issecret)
 end
 
 function Export.Refresh()
     dirtyScheduled = false
+    dirtyGeneration = dirtyGeneration+1 -- invalidate any already queued debounce callback
     if not ns.state or type(StreonorDockDB)~="table" then return false end
-    StreonorDockDB.export = ns.Core.buildExport(ns.state, Export.ServerNow(), issecret, Export.Collect())
+    StreonorDockDB.export = ns.Core.buildExport(ns.state, Export.ServerNow(), issecret,
+        Export.Collect(), StreonorDockDB.export)
     return true
+end
+-- The boundary flush runs BEFORE we enter teardown. Bag validity here still needs a client test.
+function Export.LeavingWorld()
+    if teardown then return end
+    if dirtyScheduled then Export.Refresh() end
+    teardown=true
+    worldGeneration=worldGeneration+1
+end
+function Export.StampSaved()
+    teardown=true
+    dirtyScheduled=false
+    dirtyGeneration=dirtyGeneration+1
+    worldGeneration=worldGeneration+1
+    local snapshot=StreonorDockDB.export
+    if type(snapshot)~="table" then return end
+    snapshot.savedAt=Export.ServerNow()
+    snapshot.revision=ns.state.revision
+end
+function Export.EnteringWorld()
+    teardown=false
+    worldGeneration=worldGeneration+1
+    local generation=worldGeneration
+    local timer=lib("C_Timer")
+    if type(timer.After)=="function" then
+        local ok=pcall(timer.After, 2, function()
+            if not teardown and generation==worldGeneration then ns.Safe("export dirty", Export.MarkDirty) end
+        end)
+        if ok then return end
+    end
+    Export.MarkDirty()
 end
 -- Coalesce bursts of bag/money/cooldown events into one rebuild a second later.
 function Export.MarkDirty()
-    if dirtyScheduled then return end
+    if teardown or dirtyScheduled then return end
     local timer = lib("C_Timer")
     if type(timer.After)=="function" then
         dirtyScheduled = true
-        local ok = pcall(timer.After, 1, function() ns.Safe("export", Export.Refresh) end)
+        local generation=dirtyGeneration
+        local ok = pcall(timer.After, 1, function()
+            if not teardown and dirtyScheduled and generation==dirtyGeneration then ns.Safe("export", Export.Refresh) end
+        end)
         if ok then return end
         dirtyScheduled = false
     end

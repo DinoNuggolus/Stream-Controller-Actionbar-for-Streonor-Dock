@@ -4,9 +4,10 @@ Original WoW: Forever addon by DinoNuggolus, MIT licensed. Gives a character 15 
 (fixed `ALT-CTRL-SHIFT-` chords) and 3 item readouts per page, up to 10 manual pages, and
 writes a sanitized **saved snapshot** for a future Streonor S15 companion plugin.
 
-**Status (part 2): built and unit-tested on the host only. Nothing has run in the game yet.**
-All in-game behavior (secure clicks, override bindings, secret values, cooldown readability,
-drag payloads) is unverified until the staged checklist below is done. Nothing is deployed.
+**Status: first playtest found logout/reload overwriting counts, money and free bag slots with
+teardown zeros. The fix is host-tested only and has not been deployed by this change.**
+Other in-game behavior (secure clicks, override bindings, secret values, cooldown readability,
+drag payloads) still needs the staged checklist below.
 
 Chords: slot N = `ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \` (N = 1..15, row-major,
 3 columns x 5 rows = device keys). Pager keys (next/previous/home) are set by you in
@@ -23,7 +24,7 @@ Game Menu > Key Bindings > StreonorDock.
 | `/sdock probe` | Capability presence, build, CVar, secure/override state, cooldown readability stats, table groups you hold (table vs observed) |
 | `/sdock cooldowns` | Learned cooldown data, pool sharing evidence, mismatch/conflict log |
 | `/sdock estimates on\|off\|auto` | Press-started timer estimates (auto = off once a readable item cooldown is seen in combat) |
-| `/sdock export` | Rebuild the snapshot now; it reaches disk only at `/reload` or logout |
+| `/sdock export` | Print one line from the current in-memory snapshot: money present, free slots, item counts by slot/readout, savedAt, countsStale; never rebuilds or prints sealed values |
 
 Editor: drag a spell (spellbook) or bag item onto a key; readouts take bag items only. Right-click
 clears (editor widgets are plain buttons and never cast). Edits and paging are rejected in combat
@@ -56,12 +57,25 @@ SavedVariables:
   `probe.combatReadable`, `cooldownLearned = {build, items, groups, pools}`.
 
 Snapshot `StreonorDockDB.export`, schema 1:
-`{schema=1, profileId, revision, savedAt, page={index,count}, slots[1..15], readouts[1..3], player?}`.
+`{schema=1, profileId, revision, savedAt, page={index,count}, slots[1..15], readouts[1..3], player?, countsStale?}`.
 Empty = `{kind="empty"}`. Keys add `id, chord`; readouts add `itemID`. Optional: `name`,
 `iconFileID`, items `count`, `source` (`game`/`est`/`used`) and `endsAt` (server seconds).
 `player = {moneyCopper, freeBagSlots}` when readable. No character/realm names, no spell
-cooldowns, no secret values; unavailable fields are omitted, never kept stale. Rebuilt on login,
-page change, edit, logout and (coalesced, 1 s) bag/money/cooldown events. **Consumers must label
+cooldowns, no secret values; unavailable fields are normally omitted. During teardown, or when
+both money and free bag slots read zero, previous same-profile player values and item counts
+(matched by item ID across keys/readouts) are retained with `countsStale=true`. Without previous
+values those fields are omitted. Ordinary zero item counts remain valid; a subsequent plausible
+rebuild clears the stale marker. Schema remains 1; readers must tolerate optional extra fields.
+The simultaneous-zero rule is a conservative heuristic: a broke character with completely full
+bags can trigger it too. It favors retaining earlier data, explicitly marked stale.
+
+Rebuilt on login, page change, edit and (coalesced, 1 s) bag/money/cooldown events. Entering world
+schedules a rebuild after 2 s plus the existing 1 s debounce so bags can load. Leaving world
+flushes any pending rebuild once, then blocks late debounce/entry callbacks until the next entry.
+Logout only stamps `savedAt` and revision on the existing snapshot; it never re-reads bag/money
+data. The docs mirror lists `PLAYER_LEAVING_WORLD` as synchronous, but does not guarantee that
+bags/money remain valid there: that timing assumption and the 2-3 s load delay need client tests.
+**Consumers must label
 it "saved snapshot" and show its age**: disk writes happen only at `/reload`/logout.
 
 ## Item cooldowns (Amendments 2 and 3)
@@ -150,8 +164,14 @@ is new. Keep `/console scriptErrors 1` on. Record results in NOTES.md.
 11. Combat (hit a training dummy/mob): drag/right-click/pager -> "editing/paging unavailable in combat",
    state unchanged; keys still fire; panel can still be toggled. After combat no errors.
 12. Right-click a filled key: slot clears and nothing is cast/used; the chord then does nothing.
-13. `/reload`, then read `WTF\...\SavedVariables\StreonorDock.lua` (read only): `export.schema=1`,
-    `profileId` random, no names, `slots[1]` spell with chord, page `{index,count}`, `savedAt`.
+13. Wait at least 3 s after entering world. With Hearthstone, starter water and apples assigned,
+    run `/sdock export` before `/reload`: record money presence, free slots, each item count,
+    `savedAt` and `countsStale`. Compare with the bags. Then `/reload` and read
+    `WTF\...\SavedVariables\StreonorDock.lua` (read only): counts/money/free slots must survive,
+    `export.schema=1`, `profileId` random, no names, page `{index,count}`, `savedAt` stamped.
+    Repeat after using one water/apple and reloading immediately (within the 1 s debounce) to
+    verify the leaving-world flush saves the last change. Also test logout and zoning followed
+    by entry: a new plausible export should clear `countsStale`.
 
 ### Stage 1: first potions or other cooldown items
 1. Put a potion on a key and the same potion on readout 1. Out of combat press the key: readout

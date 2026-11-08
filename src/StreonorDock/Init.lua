@@ -112,6 +112,7 @@ end
 function handlers.PLAYER_ENTERING_WORLD()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
+    ns.Export.EnteringWorld()
 end
 function handlers.PLAYER_REGEN_ENABLED()
     if InCombatLockdown() then return end
@@ -157,8 +158,11 @@ end
 function handlers.PLAYER_MONEY()
     if loaded then ns.Export.MarkDirty() end
 end
+function handlers.PLAYER_LEAVING_WORLD()
+    if loaded then ns.Safe("export leaving", ns.Export.LeavingWorld) end
+end
 function handlers.PLAYER_LOGOUT()
-    if loaded then ns.Safe("export", ns.Export.Refresh) end
+    if loaded then ns.Safe("export stamp", ns.Export.StampSaved) end
 end
 
 local function show(label, value) say(label .. ": " .. (type(value)=="function" and "available" or "unavailable")) end
@@ -166,6 +170,24 @@ local function plainText(value)
     if ns.Export.issecret(value) then return "sealed" end
     if value==nil then return "nil" end
     return tostring(value)
+end
+local function exportSummary()
+    local e=ns.Core.sanitize(StreonorDockDB.export, ns.Export.issecret)
+    if type(e)~="table" then say("no in-memory export yet"); return end
+    local player=type(e.player)=="table" and e.player or {}
+    local rows={"money=" .. (player.moneyCopper~=nil and "present" or "unknown"),
+        "freeBagSlots=" .. plainText(player.freeBagSlots)}
+    -- Access the original count only via plainText: even diagnostic corruption stays sealed.
+    for _, area in ipairs({"slots","readouts"}) do
+        for i, entry in ipairs(e[area] or {}) do
+            if entry.kind=="item" then
+                rows[#rows+1]=area .. "[" .. i .. "]=" .. plainText(StreonorDockDB.export[area][i].count)
+            end
+        end
+    end
+    rows[#rows+1]="savedAt=" .. plainText(StreonorDockDB.export.savedAt)
+    rows[#rows+1]="countsStale=" .. (e.countsStale and "true" or "false")
+    say(table.concat(rows, "; "))
 end
 local function probe()
     -- Presence and states only. Never prints sealed values; never calls uncertain APIs blindly.
@@ -312,8 +334,7 @@ SlashCmdList.STREONORDOCK=function(message)
     elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
     elseif command=="cooldowns" then ns.Safe("cooldowns", cooldowns)
     elseif command=="export" then
-        ns.Safe("export", ns.Export.Refresh)
-        say("snapshot updated in memory; /reload or log out to write it to disk (saved snapshot).")
+        ns.Safe("export summary", exportSummary)
     else help() end
 end
 BINDING_HEADER_STREONORDOCK="StreonorDock"

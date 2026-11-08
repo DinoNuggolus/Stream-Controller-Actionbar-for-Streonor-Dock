@@ -1,5 +1,31 @@
 ﻿# StreonorDock dev log
 
+## First-playtest export fix (2026-11-07)
+- User evidence: the saved export had moneyCopper=0, freeBagSlots=0, and count=0 for
+  Hearthstone, Refreshing Spring Water and Shiny Red Apple; iconFileID remained correct.
+  PLAYER_LOGOUT called Export.Refresh during teardown and replaced the earlier good snapshot.
+- Logout now only stamps savedAt/revision on the existing export. PLAYER_LEAVING_WORLD flushes
+  a pending dirty rebuild once before setting the teardown flag. Generation checks invalidate
+  queued debounce and entry callbacks; teardown blocks new dirty work until entering world.
+- Collect avoids live data reads during teardown. Core's plausibility guard retains only
+  allowlisted previous same-profile player values and item counts matched by identity when
+  teardown is active or money/free-slots both read zero. Adds optional countsStale=true,
+  schema still 1. Missing previous values stay omitted; normal zero counts remain valid.
+  Simultaneous zero is a heuristic: broke + full bags also sets stale.
+- PLAYER_ENTERING_WORLD schedules MarkDirty after 2 s (then the normal 1 s debounce), covering
+  loaded counts even without BAG_UPDATE_DELAYED. /sdock export now prints the current in-memory
+  summary without rebuilding; sealed values are never printed.
+- Documentation checked: the supplied forever-ui-docs mirror exists;
+  Interface/AddOns/Blizzard_APIDocumentationGenerated/SystemDocumentation.lua:145-148 lists
+  PLAYER_LEAVING_WORLD and SynchronousEvent=true. It does NOT document bag validity/order versus
+  teardown. Valid bag data at this boundary and the 2-3 s entry delay remain unverified in game.
+- Regression RED: 62 tests / 3491 assertions / 7 failures (six new cases plus changed diagnostics
+  expectation). GREEN including two additional edge cases: 64 tests / 3562 assertions / 0 failures.
+- Staged check: after entry wait 3 s, /sdock export before /reload, compare counts with bags,
+  then inspect saved file read-only. Repeat using an item then reloading inside the debounce;
+  also test logout/zoning and stale-marker recovery. See README Stage 0 step 13.
+- No staging, commits, deployment, game-folder or WTF changes made. Manager owns the commit.
+
 ## 2026-11-07
 - Project created (original).
 

@@ -215,9 +215,120 @@ A.test("export is sanitized, character-free and drops unavailable fields",functi
     A.deep(e.readouts[1],{kind="item",itemID=8,iconFileID=500},"secret count/name removed, not kept stale")
     A.deep(e.player,{freeBagSlots=15})
     h.ns.Edit("readouts",1,{kind="empty"})
-    h.slash("export"); A.equal(h.said("/reload or log out"),true)
+    h.slash("export"); A.equal(h.said("savedAt="),true)
     h.event("PLAYER_LOGOUT")
     A.deep(h.env.StreonorDockDB.export.readouts[1],{kind="empty"})
+end)
+A.test("logout stamps the built snapshot without reading teardown APIs",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    local e=h.env.StreonorDockDB.export
+    h.money=0; h.items[8].count=0
+    h.env.C_Container.GetContainerNumFreeSlots=function() return 0 end
+    h.env.GetMoney=function() error("logout must not read money") end
+    h.env.C_Item.GetItemCount=function() error("logout must not read counts") end
+    h.time=105
+    h.event("PLAYER_LOGOUT")
+    A.equal(h.env.StreonorDockDB.export,e)
+    A.equal(e.slots[1].count,4); A.deep(e.player,{moneyCopper=5000,freeBagSlots=15})
+    A.equal(e.savedAt,1000105); A.equal(e.revision,h.ns.state.revision)
+end)
+A.test("leaving flushes pending counts once and blocks late debounce callbacks",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("readouts",1,{kind="item",itemID=8})
+    h.items[8].count=3; h.money=4900
+    h.event("BAG_UPDATE_DELAYED"); h.event("PLAYER_MONEY")
+    h.event("PLAYER_LEAVING_WORLD")
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.readouts[1].count,3); A.equal(e.player.moneyCopper,4900)
+    h.items[8].count=0; h.money=0
+    h.env.C_Container.GetContainerNumFreeSlots=function() return 0 end
+    h.event("PLAYER_LEAVING_WORLD"); h.event("BAG_UPDATE_DELAYED"); h.runTimers()
+    A.equal(h.env.StreonorDockDB.export,e)
+    h.event("PLAYER_LOGOUT"); A.equal(e.readouts[1].count,3)
+end)
+A.test("implausible zeros preserve identity matched counts and player then recover",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.items[9]={name="Apple",icon=501,count=2}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    h.ns.Edit("readouts",1,{kind="item",itemID=9})
+    h.money=0; h.items[8].count=0; h.items[9].count=0
+    h.env.C_Container.GetContainerNumFreeSlots=function() return 0 end
+    h.ns.Export.Refresh()
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,true); A.equal(e.slots[1].count,4); A.equal(e.readouts[1].count,2)
+    A.deep(e.player,{moneyCopper=5000,freeBagSlots=15}); A.equal(e.slots[1].iconFileID,500)
+    h.ns.Edit("slots",1,{kind="item",id=9})
+    A.equal(h.env.StreonorDockDB.export.slots[1].count,2,"match item identity, not slot")
+    h.money=10; h.ns.Export.Refresh()
+    e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,nil); A.equal(e.slots[1].count,0,"normal zero counts are valid")
+    A.deep(e.player,{moneyCopper=10,freeBagSlots=0})
+end)
+A.test("teardown guard retains counts even with plausible live values",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    h.event("PLAYER_LEAVING_WORLD")
+    h.items[8].count=1; h.money=25
+    h.ns.Export.Refresh()
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,true); A.equal(e.slots[1].count,4); A.equal(e.player.moneyCopper,5000)
+    h.event("PLAYER_ENTERING_WORLD"); h.runTimers(); h.runTimers()
+    A.equal(h.env.StreonorDockDB.export.slots[1].count,1)
+    A.equal(h.env.StreonorDockDB.export.countsStale,nil)
+end)
+A.test("entering world waits for loaded bags then rebuilds without a bag event",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=0}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    h.event("PLAYER_ENTERING_WORLD")
+    h.items[8].count=5
+    h.runTimers(); h.runTimers()
+    A.equal(h.env.StreonorDockDB.export.slots[1].count,5)
+end)
+A.test("leaving flush guards zero readings and a later world refresh recovers",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    h.event("PLAYER_ENTERING_WORLD")
+    h.money=0; h.items[8].count=0
+    h.env.C_Container.GetContainerNumFreeSlots=function() return 0 end
+    h.event("PLAYER_MONEY"); h.event("PLAYER_LEAVING_WORLD")
+    h.runTimers(); h.runTimers()
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,true); A.equal(e.slots[1].count,4); A.equal(e.player.freeBagSlots,15)
+    h.event("PLAYER_ENTERING_WORLD"); h.money=20; h.items[8].count=2
+    h.runTimers(); h.runTimers()
+    e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,nil); A.equal(e.slots[1].count,2); A.equal(e.player.moneyCopper,20)
+end)
+A.test("implausible first readings omit counts instead of copying another character",function()
+    local h=host({db={export={profileId="other",player={moneyCopper=900,freeBagSlots=10},
+        slots={{kind="item",id=8,count=99}}}}})
+    h.money=0; h.env.C_Container.GetContainerNumFreeSlots=function() return 0 end
+    h.items[8]={name="Water",icon=500,count=0}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.countsStale,true); A.equal(e.player,nil); A.equal(e.slots[1].count,nil)
+    A.equal(e.slots[1].iconFileID,500)
+end)
+A.test("export command reports memory without rebuilding or printing secrets",function()
+    local h=host()
+    h.items[8]={name="Water",icon=500,count=4}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    local e=h.env.StreonorDockDB.export
+    h.items[8].count=0; h.money=0
+    h.slash("export")
+    A.equal(h.env.StreonorDockDB.export,e); A.equal(e.slots[1].count,4)
+    A.equal(h.said("slots[1]=4"),true); A.equal(h.said("freeBagSlots=15"),true)
+    A.equal(h.said("money=present"),true); A.equal(h.said("savedAt=1000100"),true)
+    e.player.moneyCopper=SECRET; e.slots[1].count=SECRET; e.savedAt=SECRET
+    h.slash("export")
+    A.equal(h.said("slots[1]=sealed"),true)
 end)
 A.test("key press starts one item timer shared across pages and slots",function()
     local h=host({db={cooldownLearned={items={[8]={duration=60}}}}})
