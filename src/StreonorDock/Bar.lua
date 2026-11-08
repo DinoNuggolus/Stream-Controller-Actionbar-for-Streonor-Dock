@@ -159,7 +159,7 @@ local function contextEntries(slotIndex)
     local entries = {
         {text = "StreonorDock", title = true},
         {text = "Settings", func = function() if ns.Options then ns.Options.Open() end end},
-        {text = assigning() and "Lock assignments" or "Unlock for assignment", func = function() if ns.Assign then ns.Assign.Toggle() end end},
+        {text = assigning() and "Lock assignments" or "Unlock for assignment", disabled = InCombatLockdown(), func = function() if ns.Assign then ns.Assign.Toggle() end end},
         {text = "Reload UI", disabled = InCombatLockdown(), func = function() if not InCombatLockdown() and type(ReloadUI) == "function" then ReloadUI() end end},
     }
     if slotIndex and assigning() then
@@ -363,8 +363,11 @@ local function buildButton(i)
     -- Locked behaviour: tooltip, flash, right-click.
     b:HookScript("OnEnter", function(self) ns.Safe("tooltip", Bar.Tooltip, self) end)
     b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-    b:HookScript("PostClick", function(self, mouse)
-        if mouse == "RightButton" then ns.Safe("rightclick", Bar.RightClick, "button", self, nil) end
+    -- Right-click is handled on mouse UP by a plain OnMouseUp hook, independent of the secure click
+    -- registration (AnyDown): the menu does not open on the press edge and get dismissed by the release, and
+    -- the secure action (type1 only) is never involved, so one press stays one use attempt.
+    b:HookScript("OnMouseUp", function(self, mouse)
+        if mouse == "RightButton" and not assigning() then ns.Safe("rightclick", Bar.RightClick, "button", self, nil) end
     end)
     Bar.WatchHover(b); Bar.WatchHover(o)
     ns.Secure.Hook(b, 0)   -- shared PostClick restore; bar clicks do not feed the chord counters

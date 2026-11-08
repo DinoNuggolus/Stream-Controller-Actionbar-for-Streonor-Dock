@@ -220,3 +220,45 @@ A.test("style presets: slate default, parchment applies LSM keys, picking a bord
     look.border.set(nil, "Blizzard Dialog"); A.equal(h.ns.profile.bar.style, "custom")
     A.equal(h.ns.Bar.wrapper.backdrop ~= nil or true, true)
 end)
+
+A.test("right-click works on locked buttons, hidden-slot background, ghost area and header; one press stays one use", function()
+    local h = host(); h.login(); local bar = h.ns.Bar
+    local shown = {}
+    h.ns.Menu.Show = function(owner, entries) shown[#shown+1] = {owner = owner, entries = entries} end
+    h.ns.Edit(1, {kind = "item", id = 8})
+    A.equal(h.ns.Assign.IsActive(), false)
+    h.fire(bar.buttons[1], "OnMouseUp", "RightButton"); A.equal(#shown, 1); A.equal(shown[1].owner, bar.buttons[1])
+    h.fire(bar.wrapper, "OnMouseUp", "RightButton"); A.equal(#shown, 2, "background / hidden empty slots")
+    h.fire(bar.header, "OnMouseUp", "RightButton"); A.equal(#shown, 3)
+    h.fire(bar.buttons[1], "OnMouseUp", "LeftButton"); A.equal(#shown, 3, "left button never opens it")
+    -- configured action for the header and (button option off) for buttons
+    local opened, toggled = 0, 0
+    h.ns.Options.Open = function() opened = opened + 1 end
+    h.ns.profile.general.rightClickAction = "settings"
+    h.fire(bar.header, "OnMouseUp", "RightButton"); A.equal(opened, 1)
+    h.fire(bar.buttons[1], "OnMouseUp", "RightButton"); A.equal(#shown, 4, "buttons use the menu while the option is on")
+    h.ns.profile.general.rightClickEnabled = false
+    h.fire(bar.buttons[1], "OnMouseUp", "RightButton"); A.equal(opened, 2)
+    h.ns.profile.general.rightClickAction = "nothing"
+    h.fire(bar.wrapper, "OnMouseUp", "RightButton"); A.equal(opened, 2); A.equal(#shown, 4)
+    h.ns.profile.general.rightClickAction = "assign"
+    h.fire(bar.wrapper, "OnMouseUp", "RightButton"); A.equal(h.ns.Assign.IsActive(), true); h.ns.Assign.Lock()
+    -- the secure contract is untouched: no right-button attributes, one down = one use
+    local b = bar.buttons[1]
+    A.equal(b.attrs["*type2"], nil); A.equal(b.attrs["type2"], nil); A.deep(b.clicks, {"AnyDown"})
+    h.click(1, true); h.click(1, false); A.equal(#h.uses, 1)
+    for _ = 1, 3 do h.fire(b, "OnMouseUp", "RightButton") end
+    A.equal(#h.uses, 1, "right-clicks add no use attempt")
+end)
+A.test("opening the menu in combat does not error; assignment-changing entries are disabled", function()
+    local h = host(); h.login(); local bar = h.ns.Bar
+    local captured
+    h.ns.Menu.Show = function(owner, entries) captured = entries end
+    h.ns.profile.general.rightClickEnabled = true; h.ns.profile.general.rightClickAction = "menu"
+    h.combat = true
+    h.fire(bar.wrapper, "OnMouseUp", "RightButton")
+    A.equal(captured ~= nil, true); A.equal(captured[3].disabled, true, "unlock disabled in combat"); A.equal(captured[4].disabled, true, "reload disabled")
+    A.equal(captured[2].disabled, nil, "settings still open")
+    A.equal(h.internalErrors, 0); A.equal(h.blocked, 0)
+    h.combat = false
+end)
