@@ -89,7 +89,7 @@ function ns.host(options)
         function methods:CreateFontString() return object("FontString") end
         function methods:IsOwned(owner) return self.owner==owner end
         function methods:SetOwner(owner) self.owner=owner end
-        return setmetatable(o, {__index=function(_, key) return methods[key] or noop end})
+        return setmetatable(o, {__index=function(_, key) return methods[key] or ((type(key)=="string" and string.find(key, "^%u")) and noop or nil) end})
     end
     h.object = object
     env.CreateFrame = function(kind, name, parent, template)
@@ -202,6 +202,24 @@ function ns.host(options)
     function h.button(i) return h.named("StreonorDockSlot" .. i) end
     function h.named(name) for _, f in ipairs(h.frames) do if f.name==name then return f end end end
     function h.editor(area, index) for _, f in ipairs(h.frames) do if f.area==area and f.index==index then return f end end end
+    -- Secure-click simulator. Default: the client honours RegisterForClicks and the template acts only on
+    -- the edge named by useOnKeyDown. h.ignoreRegistration: binding delivers BOTH edges regardless of
+    -- registration. h.templateIgnoresEdge: the template acts on any edge it receives (worst case).
+    h.uses = {}
+    function h.click(i, down)
+        local b = h.button(i)
+        local edge = down and "AnyDown" or "AnyUp"
+        local registered = false
+        for _, c in ipairs(b.clicks or {}) do if c==edge then registered = true end end
+        if not registered and not h.ignoreRegistration then return false end
+        if b.scripts.PreClick then b.scripts.PreClick(b, "LeftButton", down) end
+        local kind = b.attrs["*type1"]
+        if kind and (h.templateIgnoresEdge or (b.attrs.useOnKeyDown==true)==down) then
+            h.uses[#h.uses+1] = b.attrs["*" .. kind .. "1"]
+        end
+        if b.scripts.PostClick then b.scripts.PostClick(b, "LeftButton", down) end
+        return true
+    end
     function h.login() h.event("ADDON_LOADED", addonName); h.event("PLAYER_LOGIN") end
     function h.said(pattern)
         for _, m in ipairs(h.messages) do if string.find(m, pattern, 1, true) then return true end end

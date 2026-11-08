@@ -180,3 +180,8 @@ Assumption updates (replace items 1 and 4 above):
   Tracker precedence is now learned > group learned > dormant > game base > shipped table. Export field `cooldownSource`
   gains base/category and `verified` is now a boolean (was source "verified"). 81 tests. Units/returns of
   GetSpellBaseCooldown on Forever unverified (not in the API mirror).
+
+## One press = one use (2026-11-08)
+- Secure.lua: AnyDown only + useOnKeyDown=true always; PreClick/PostClick edge counters, OOC up-edge neutralisation; `/sdock clicks`.
+  Host.lua gained a click simulator (h.click, h.uses, ignoreRegistration, templateIgnoresEdge); fake frames no longer return
+  noop for missing lowercase fields. 84 tests. Root cause of the in-game double attempt not proven (needs the user's /sdock clicks).

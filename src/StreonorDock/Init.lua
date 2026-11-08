@@ -427,13 +427,26 @@ local function cdprobe()
         end
     end
 end
+local function clicksReport(arg)
+    if arg=="reset" then ns.Secure.ResetClicks(); say("click counters reset"); return end
+    local any = false
+    for i=1,15 do
+        local c = ns.Secure.clicks[i]
+        if c.down>0 or c.up>0 then
+            any = true
+            say("slot " .. i .. ": down edges " .. c.down .. ", up edges " .. c.up .. ", use attempts " .. c.attempts)
+        end
+    end
+    if not any then say("no secure clicks received yet: press a key once, then run /sdock clicks (expect down 1, attempts 1)") end
+    say("keys act on the DOWN edge only; '/sdock clicks reset' clears the counters.")
+end
 local function estimates(arg)
     if arg=="on" or arg=="off" or arg=="auto" then StreonorDockDB.settings.estimates=arg end
     say("press estimates: " .. StreonorDockDB.settings.estimates .. " -> " .. (ns.Export.EstimatesEnabled() and "on" or "off")
         .. " (usage: /sdock estimates on|off|auto)")
 end
 local function help()
-    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | cdprobe | log [chat|combat on|off] | help")
+    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | cdprobe | clicks | log [chat|combat on|off] | help")
     say("Drag a spell or bag item onto a key; click a readout to pick money or a currency; right-click clears. Out of combat only.")
     say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
@@ -449,6 +462,7 @@ SlashCmdList.STREONORDOCK=function(message)
     elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
     elseif command=="cooldowns" then ns.Safe("cooldowns", cooldowns)
     elseif command=="cdprobe" then ns.Safe("cdprobe", cdprobe)
+    elseif command=="clicks" then ns.Safe("clicks", clicksReport, arg)
     elseif command=="log" then ns.Safe("log", logCommand, arg, arg2)
     elseif command=="export" then
         ns.Safe("export summary", exportSummary)

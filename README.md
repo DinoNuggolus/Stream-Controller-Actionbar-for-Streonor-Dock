@@ -262,3 +262,14 @@ Spells with charges (`C_Spell.GetSpellCharges` reports `maxCharges` > 1) export 
 press the game refuses (mana, range, global cooldown, dead) can still start a false controller timer. `/sdock cdprobe`
 prints, for every filled slot, the raw base return values, learned/shipped lengths, whether the cooldown reads are plain or
 sealed, and what the export currently carries.
+
+## One press = one use attempt
+
+Evidence of a double attempt (a use followed ~80-170 ms later by "Item is not ready yet") pointed at the key-UP edge of
+the chord. The 15 secure buttons now act on the **down edge only**: they register `AnyDown` (never `AnyUp`) and carry
+`useOnKeyDown=true` whatever the `ActionButtonUseKeyDown` CVar says. If the client still delivers an up click to the
+secure handler, an insecure `PreClick` makes it inert out of combat (the action type is cleared for that one click and
+restored in `PostClick`); in combat attributes cannot be written, so only the registration protects there
+(**unverified on Forever**). An up edge never counts as a press for the controller timers. `/sdock clicks` shows,
+per slot, the down edges, up edges and use attempts received (press a key once: expect down 1, attempts 1;
+`/sdock clicks reset` clears). The companion plugin also sends each press as a short tap (see its README).

@@ -22,11 +22,47 @@ local function plainString(v) if not issecret(v) and type(v)=="string" then retu
 function Secure.ButtonName(index) return "StreonorDockSlot" .. index end
 function Secure.ClickAction(index) return "CLICK " .. Secure.ButtonName(index) .. ":LeftButton" end
 
-local function postClick(self)
+-- ONE PRESS = ONE USE ATTEMPT. Keys act on the DOWN edge only: the buttons register AnyDown (never
+-- AnyUp) and carry useOnKeyDown=true whatever the ActionButtonUseKeyDown CVar says. If the client
+-- still delivers an UP click to the secure handler (evidence of a second attempt ~80-170 ms after the
+-- first), PreClick makes it inert where that is possible: out of combat the action type is cleared
+-- for that one click and restored in PostClick. In combat attributes cannot be written, so there the
+-- guard relies on registration only (unverified on Forever). Per-slot edge counters feed /sdock clicks.
+Secure.clicks = {}
+for i=1,15 do Secure.clicks[i] = {down=0, up=0, attempts=0} end
+function Secure.ResetClicks() for i=1,15 do Secure.clicks[i] = {down=0, up=0, attempts=0} end end
+local function preClick(self, mouse, down)
+    ns.Safe("preclick", function()
+        local counter = Secure.clicks[self.streonorIndex or 0]
+        if not counter then return end
+        if down==false then
+            counter.up = counter.up + 1
+            if not InCombatLockdown() and self:GetAttribute("*type1") then
+                self.streonorSuppressed = self:GetAttribute("*type1")
+                self:SetAttribute("*type1", nil)
+            end
+        else
+            counter.down = counter.down + 1
+            if self:GetAttribute("*type1") then counter.attempts = counter.attempts + 1 end
+        end
+    end)
+end
+local function restoreType(self)
+    local saved = self.streonorSuppressed
+    if saved==nil then return end
+    if InCombatLockdown() then
+        ns.RunOutOfCombat(function() self:SetAttribute("*type1", saved); self.streonorSuppressed = nil end)
+    else
+        self:SetAttribute("*type1", saved); self.streonorSuppressed = nil
+    end
+end
+local function postClick(self, mouse, down)
     -- Insecure PostClick on our own button, after the secure handler, in combat too. It means
     -- "the key was pressed", NOT that the item was used (the use can fail); the timers treat it
     -- as a press and reconcile with readable game data. Never acts on gameplay.
     ns.Safe("press", function()
+        restoreType(self)
+        if down==false then return end   -- an up edge is never a press
         if self.streonorKind=="spell" and self.streonorID then
             ns.Export.OnSpellPress(self.streonorID)
         elseif self.streonorKind=="item" and self.streonorID then
@@ -54,7 +90,11 @@ local function init()
             Secure.status.lastError = "SecureActionButtonTemplate button " .. i .. " missing"
             return false
         end
-        if not buttons[i] then button:SetScript("PostClick", postClick) end
+        if not buttons[i] then
+            button.streonorIndex = i
+            button:SetScript("PreClick", preClick)
+            button:SetScript("PostClick", postClick)
+        end
         buttons[i] = button
     end
     Secure.status.template = "available"
@@ -62,13 +102,11 @@ local function init()
     return true
 end
 
--- Click direction must match ActionButtonUseKeyDown or the modern template ignores the click.
+-- Always the DOWN edge. The ActionButtonUseKeyDown CVar is only read for /sdock probe: following it
+-- (AnyUp when it is off) is a second edge policy we do not want. Whether the template honours the
+-- attribute over the CVar is unverified on Forever.
 function Secure.ApplyClickDirection()
-    local keyDown = true  -- modern default when the CVar cannot be read (unverified on Forever)
-    if type(GetCVarBool)=="function" then
-        local ok, value = pcall(GetCVarBool, "ActionButtonUseKeyDown")
-        if ok and not issecret(value) and value~=nil then keyDown = value and true or false end
-    end
+    local keyDown = true
     if appliedKeyDown~=keyDown then
         for i=1,15 do
             buttons[i]:SetAttribute("useOnKeyDown", keyDown)

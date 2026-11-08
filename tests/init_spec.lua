@@ -114,16 +114,14 @@ A.test("attributes follow kind changes and never keep stale fields",function()
     h.overrides["ALT-CTRL-SHIFT-5"]=nil; h.event("PLAYER_REGEN_ENABLED")
     A.equal(h.overrides["ALT-CTRL-SHIFT-5"],"CLICK StreonorDockSlot5:LeftButton")
 end)
-A.test("click direction matches ActionButtonUseKeyDown and follows CVAR_UPDATE",function()
-    local h=host()
-    h.login()
-    A.deep(h.button(1).clicks,{"AnyDown"}); A.equal(h.button(1).attrs.useOnKeyDown,true)
-    h.keyDown=false; h.event("CVAR_UPDATE","ActionButtonUseKeyDown","0")
-    A.deep(h.button(15).clicks,{"AnyUp"}); A.equal(h.button(15).attrs.useOnKeyDown,false)
-    h.keyDown=true; h.combat=true; h.event("CVAR_UPDATE","ActionButtonUseKeyDown","1")
-    A.deep(h.button(15).clicks,{"AnyUp"},"not changed in combat")
-    h.combat=false; h.event("PLAYER_REGEN_ENABLED")
-    A.deep(h.button(15).clicks,{"AnyDown"})
+A.test("click direction is always the DOWN edge, whatever the ActionButtonUseKeyDown CVar says",function()
+    for _, cvar in ipairs({true,false}) do
+        local h=host(); h.keyDown=cvar
+        h.login()
+        A.deep(h.button(1).clicks,{"AnyDown"}); A.equal(h.button(1).attrs.useOnKeyDown,true)
+        h.keyDown=not cvar; h.event("CVAR_UPDATE","ActionButtonUseKeyDown","0")
+        A.deep(h.button(15).clicks,{"AnyDown"}); A.equal(h.button(15).attrs.useOnKeyDown,true)
+    end
 end)
 A.test("conflict report compares ordinary and effective mappings",function()
     local h=host()
@@ -711,5 +709,44 @@ A.test("item slots use the game base cooldown via C_Item.GetItemSpell; learned w
     h.slash("cdprobe")
     A.equal(h.said("item 8 -> spell 555"),true); A.equal(h.said("base raw 90000, 0"),true); A.equal(h.said("-> 90.0s base") or h.said("-> 90s base"),true)
     A.equal(h.said("spell 100 | base raw n/a") or h.said("spell 100"),true)
+    A.equal(h.internalErrors,0)
+end)
+A.test("one press = one use attempt: down+up clicks, both CVar settings, three template behaviours",function()
+    for _, cvar in ipairs({true,false}) do
+        for _, mode in ipairs({"registration","delivers-both-edges","template-ignores-edge"}) do
+            local h=host(); h.keyDown=cvar
+            h.items[8]={name="Water",icon=500,count=5}
+            h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+            if mode~="registration" then h.ignoreRegistration=true end
+            if mode=="template-ignores-edge" then h.templateIgnoresEdge=true end
+            h.click(1,true); h.click(1,false)
+            A.equal(#h.uses,1,"uses for cvar "..tostring(cvar).." mode "..mode)
+            A.equal(h.uses[1],"item:8")
+            A.equal(h.button(1).attrs["*type1"],"item","type restored after the inert up edge")
+            local c=h.ns.Secure.clicks[1]
+            A.equal(c.down,1); A.equal(c.attempts,1); A.equal(c.up,mode=="registration" and 0 or 1)
+        end
+    end
+end)
+A.test("in combat: the up edge is never written around (no blocked protected calls); registration keeps it to one use",function()
+    local h=host(); h.items[8]={name="Water",icon=500,count=5}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8})
+    h.combat=true
+    h.click(1,true); h.click(1,false)
+    A.equal(#h.uses,1); A.equal(h.blocked,0)
+    -- a client that delivers the up edge anyway: counted, no attribute write attempted in combat
+    h.ignoreRegistration=true; h.click(1,false); A.equal(h.blocked,0); A.equal(h.ns.Secure.clicks[1].up,1)
+end)
+A.test("a held key's repeated downs are not presses; up edges never start timers; /sdock clicks reports and resets",function()
+    local h=host(); h.items[8]={name="Water",icon=500,count=5}; h.spells[42]={name="Bolt",icon=1,cached=true}
+    h.login(); h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("slots",2,{kind="spell",id=42})
+    h.slash("clicks"); A.equal(h.said("no secure clicks received yet"),true)
+    h.ignoreRegistration=true
+    h.click(1,false); A.equal(h.ns.Export.stats.estimates,0,"an up edge alone starts no press timer")
+    h.click(1,true); h.click(1,false); h.click(2,true); h.click(2,false)
+    h.slash("clicks")
+    A.equal(h.said("slot 1: down edges 1, up edges 2, use attempts 1"),true)
+    A.equal(h.said("slot 2: down edges 1, up edges 1, use attempts 1"),true)
+    h.slash("clicks reset"); h.messages={}; h.slash("clicks"); A.equal(h.said("no secure clicks received yet"),true)
     A.equal(h.internalErrors,0)
 end)
