@@ -99,8 +99,54 @@ function Options.Build()
         open = {type = "execute", name = "Open assignments", order = nextOrder(), desc = "Unlock the bar for assigning spells and items.",
             func = function() if ns.Assign then ns.Assign.Toggle() end end},
     }}
+    local function V() return ns.profile.bar.visibility end
+    local function vset(key, value) V()[key] = value; ns.Visibility.SettingsChanged(); Options.Notify() end
+    local function vrange(key, name, desc, min, max, step, extra)
+        local e = {type = "range", name = name, desc = desc, order = nextOrder(), min = min, max = max, step = step,
+            get = function() return V()[key] end, set = function(_, val) vset(key, val) end,
+            disabled = function() return not V().enabled end}
+        for k, x in pairs(extra or {}) do e[k] = x end
+        return e
+    end
+    local conditionValues, conditionOrder = {}, {}
+    for _, id in ipairs(ns.Visibility.ORDER) do conditionValues[id] = ns.Visibility.PREDICATES[id].label; conditionOrder[#conditionOrder + 1] = id end
     local vis = {type = "group", name = "Visibility", order = nextOrder(), args = {
-        note = text("Visibility conditions are not part of this version. This page is reserved.")}}
+        enabled = {type = "toggle", name = "Enable visibility fading", order = nextOrder(), get = function() return V().enabled end, set = function(_, val) vset("enabled", val) end,
+            desc = "Off: the bar is always fully visible."},
+        base = vrange("baseAlpha", "Base / faded opacity", "Opacity when no condition is met.", 0, 1, 0.01, {isPercent = true,
+            set = function(_, val) local v = V(); v.baseAlpha = math.min(val, v.visibleAlpha); ns.Visibility.SettingsChanged(); Options.Notify() end}),
+        visible = vrange("visibleAlpha", "Visible opacity", "Opacity when the conditions are met.", 0, 1, 0.01, {isPercent = true,
+            set = function(_, val) local v = V(); v.visibleAlpha = val; if v.baseAlpha > val then v.baseAlpha = val end; ns.Visibility.SettingsChanged(); Options.Notify() end}),
+        fin = vrange("fadeIn", "Fade-in duration (s)", "", 0, 5, 0.05),
+        fout = vrange("fadeOut", "Fade-out duration (s)", "", 0, 5, 0.05),
+        delay = vrange("fadeDelay", "Fade delay (s)", "Wait before fading out. 0 disables the delay.", 0, 10, 0.05),
+        h = header("Conditions"),
+        match = {type = "select", name = "Show when", order = nextOrder(), values = {ANY = "ANY selected condition is true", ALL = "ALL selected conditions are true"},
+            get = function() return V().match end, set = function(_, val) vset("match", val) end, disabled = function() return not V().enabled end},
+        allnote = text("With ALL, a single false condition fades the bar even if others are true. With no conditions selected the bar is always visible. Unreadable conditions keep it visible."),
+        conditions = {type = "multiselect", name = "Conditions", order = nextOrder(), dialogControl = "Dropdown",
+            desc = "Tick the conditions that make the bar visible. Mouseover only raises opacity when it is ticked here.",
+            values = conditionValues,
+            get = function(_, key) return V().conditions[key] == true end,
+            set = function(_, key, val) V().conditions[key] = val and true or false; ns.Visibility.SettingsChanged(); Options.Notify() end,
+            disabled = function() return not V().enabled end},
+        summary = {type = "description", order = nextOrder(), fontSize = "medium", name = function() return ns.Visibility.Summary() end},
+        policy = text("Assignment mode always shows the bar at full opacity (not a selectable condition)."),
+        none = {type = "toggle", name = "Hide completely when none true", order = nextOrder(), get = function() return V().hideWhenNone end,
+            set = function(_, val) vset("hideWhenNone", val) end, disabled = function() return not V().enabled end,
+            desc = "Fade to 0 instead of the base opacity. Invisible buttons can still receive clicks."},
+        h2 = header("Condition settings"),
+        margin = vrange("mouseoverMargin", "Mouseover margin (px)", "Extra area around the bar that counts as hovering. 0 disables the margin.", 0, 40, 1),
+        low = vrange("lowHealthPct", "Low health below (%)", "", 1, 100, 1),
+        modifier = {type = "select", name = "Modifier key", order = nextOrder(), values = {SHIFT = "Shift", CTRL = "Ctrl", ALT = "Alt"},
+            get = function() return V().modifier end, set = function(_, val) vset("modifier", val) end},
+        h3 = header("Diagnostics"),
+        diag = {type = "description", order = nextOrder(), fontSize = "medium", name = function()
+            local events = table.concat(ns.Visibility.RegisteredEvents(), ", ")
+            return "Registered events: " .. (events ~= "" and events or "none")
+                .. "\nFlying is best effort: this client offers no known takeoff/landing event, so it re-reads on mount, aura, control and zone events."
+        end},
+    }}
     args.bar = {type = "group", name = "Bar", order = nextOrder(), childGroups = "tab", args = {
         layout = {type = "group", name = "Layout", order = nextOrder(), args = {
             mirror = toggle("bar", "mirrorControllerLayout", "Mirror controller layout",

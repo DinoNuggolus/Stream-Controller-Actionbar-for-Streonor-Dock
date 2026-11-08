@@ -224,6 +224,7 @@ function Assign.Unlock()
     baseline = Assign.Snapshot()
     generation = generation + 1
     setEscape(true)
+    if ns.Visibility then ns.Visibility.PolicyChanged() end
     ns.Bar.Refresh()
     if ns.Options then ns.Options.Notify() end
     return true
@@ -239,6 +240,7 @@ function Assign.Lock()
     baseline = nil
     generation = generation + 1
     setEscape(false)
+    if ns.Visibility then ns.Visibility.PolicyChanged() end
     ns.Bar.Refresh()
     if ns.Options then ns.Options.Notify() end
     if dirty then Assign.ShowReloadPopup() end

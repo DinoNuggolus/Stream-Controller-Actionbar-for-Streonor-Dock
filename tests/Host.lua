@@ -51,6 +51,7 @@ function ns.host(options)
             self.scripts[which]=fn
         end
         function methods:GetScript(which) return self.scripts[which] end
+        function methods:UnregisterEvent(event) self.events[event] = nil end
         function methods:RegisterEvent(event)
             if h.unknownEvents[event] then error("Attempt to register unknown event " .. event) end
             self.events[event]=true
@@ -203,6 +204,24 @@ function ns.host(options)
     env.UnitNameUnmodified = function() return options.name or "Tester" end
     env.GetCurrentRegionName = function() return "US" end
     env.GetCurrentRegion = function() return 1 end
+    h.state = {}
+    local function st(key, default) local v = h.state[key]; if v == nil then return default end; return v end
+    env.UnitExists = function(u) return st("exists", false) end
+    env.UnitCanAttack = function() return st("hostile", false) end
+    env.IsInGroup = function() return st("group", false) end
+    env.IsInRaid = function() return st("raid", false) end
+    env.IsInInstance = function() return st("instance", false), st("instanceType", "none") end
+    env.UnitIsPVP = function() return st("pvpflag", false) end
+    env.IsMounted = function() return st("mounted", false) end
+    env.IsResting = function() return st("resting", false) end
+    env.IsFlying = function() return st("flying", false) end
+    env.UnitCastingInfo = function() return st("casting", nil) end
+    env.UnitChannelInfo = function() return st("channel", nil) end
+    env.UnitHealth = function() return st("hp", 100) end
+    env.UnitHealthMax = function() return st("hpmax", 100) end
+    env.IsShiftKeyDown = function() return st("shift", false) end
+    env.IsControlKeyDown = function() return st("ctrl", false) end
+    env.IsAltKeyDown = function() return st("alt", false) end
     env.securecallfunction = function(fn, ...) return fn(...) end
     env.ReloadUI = function() h.reloaded = (h.reloaded or 0) + 1 end
     env.StaticPopupDialogs = {}

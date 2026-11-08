@@ -183,7 +183,8 @@ A.test("defaults match the spec table", function()
     local c = Config.defaults.char
     A.deep(c.barPosition, {point="CENTER", relativePoint="CENTER", x=0, y=0}); A.equal(c.minimap.minimapPos, 225)
     A.equal(Config.defaults.global.tutorial.completed, false)
-    for k in pairs(d.bar.visibility) do error("visibility must stay empty (managed elsewhere): " .. k) end
+    A.equal(d.bar.visibility.baseAlpha, 0.35); A.equal(d.bar.visibility.visibleAlpha, 1); A.equal(d.bar.visibility.match, "ANY")
+    A.equal(d.bar.visibility.conditions.mouseover, true); A.equal(d.bar.visibility.conditions.combat, true); A.equal(d.bar.visibility.conditions.target, true)
 end)
 A.test("character and global validation", function()
     local char = {currentPage=9, barPosition={point="NOPE", relativePoint="CENTER", x=1, y=2}, minimap={hide="x", minimapPos=999}, nextKey=5}

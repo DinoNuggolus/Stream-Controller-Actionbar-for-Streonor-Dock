@@ -4,6 +4,8 @@ local handlers, pending = {}, {}
 local loaded = false
 local reported = {}
 local unavailableEvents = {}
+local dynamic = {}      -- event -> handler, registered at runtime (visibility conditions)
+local frame
 local function say(message) print("StreonorDock: " .. message) end
 ns.Say = say
 ns.version = "0.3.0"
@@ -27,6 +29,19 @@ local function flushPending()
     for i=1,#work do ns.RunOutOfCombat(work[i]) end
 end
 function ns.IsLoaded() return loaded end
+-- Runtime event registration on the SAME event frame (one frame, handler tables). Returns false when the
+-- client does not know the event. Static handlers are never unregistered.
+function ns.RegisterEvent(event, fn)
+    if dynamic[event] == fn then return true end
+    if not pcall(frame.RegisterEvent, frame, event) then return false end
+    dynamic[event] = fn
+    return true
+end
+function ns.UnregisterEvent(event)
+    if not dynamic[event] then return end
+    dynamic[event] = nil
+    if not handlers[event] then pcall(frame.UnregisterEvent, frame, event) end
+end
 function ns.CurrentPage()
     local profile, char = ns.profile, ns.char
     return profile and char and profile.pages[char.currentPage] or ns.Core.newPage()
@@ -93,6 +108,7 @@ end
 function ns.ProfileChanged()
     if not loaded then return end
     bind()
+    if ns.Visibility then ns.Visibility.Reseed(true) end
     if ns.Assign then ns.Assign.NoteChange(); ns.Assign.OfferReload() end
     ns.LayoutChanged()
     if ns.Options then ns.Safe("options", ns.Options.Refresh) end
@@ -121,6 +137,7 @@ function handlers.ADDON_LOADED(_, name)
     bind()
     if ns.readOnly then say("saved data is from a newer StreonorDock version: running read-only.") end
     ns.Safe("bar create", function() if ns.Bar then ns.Bar.Create() end end)
+    ns.Safe("visibility", function() if ns.Visibility then ns.Visibility.Reseed(true) end end)
     ns.Safe("minimap", function() if ns.Minimap then ns.Minimap.Create() end end)
     ns.Safe("options", function() if ns.Options then ns.Options.Register() end end)
     -- Secure buttons/bindings: now if possible, else queued for PLAYER_REGEN_ENABLED.
@@ -145,6 +162,7 @@ end
 function handlers.PLAYER_ENTERING_WORLD()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
+    if ns.Visibility then ns.Safe("visibility", ns.Visibility.Reseed) end
     if ns.Display then ns.Display.CooldownsChanged() end
     ns.Export.EnteringWorld()
 end
@@ -153,12 +171,14 @@ function handlers.PLAYER_REGEN_ENABLED()
     flushPending()
     if not loaded then return end
     ns.Safe("secure", ns.Secure.Request)
+    if ns.Visibility then ns.Safe("visibility", ns.Visibility.CombatChanged, false) end
     if ns.Bar then ns.Safe("bar combat end", ns.Bar.CombatEnded) end
     if ns.Assign then ns.Safe("assign combat end", ns.Assign.CombatEnded) end
     ns.Export.MarkDirty()
 end
 function handlers.PLAYER_REGEN_DISABLED()
     if not loaded then return end
+    if ns.Visibility then ns.Safe("visibility", ns.Visibility.CombatChanged, true) end
     if ns.Assign then ns.Safe("assign combat", ns.Assign.CombatStarted) end
     if ns.Bar then ns.Safe("bar combat", ns.Bar.CombatStarted) end
 end
@@ -336,7 +356,7 @@ BINDING_HEADER_STREONORDOCK_SLOTS="StreonorDock slots (diagnostic)"
 for i=1,15 do
     _G["BINDING_NAME_CLICK StreonorDockSlot" .. i .. ":LeftButton"]="Slot " .. i .. " (same as " .. ns.Core.chord(i) .. ")"
 end
-local frame=CreateFrame("Frame")
+frame=CreateFrame("Frame")
 for event in pairs(handlers) do
     -- An event unknown to this client would throw; record it for /sdock probe instead.
     if not pcall(frame.RegisterEvent, frame, event) then unavailableEvents[#unavailableEvents+1]=event end
@@ -344,5 +364,6 @@ end
 table.sort(unavailableEvents)
 frame:SetScript("OnEvent",function(self,event,...)
     local handler=handlers[event]
-    if handler then ns.Safe(event, handler, self, ...) end
+    if handler then ns.Safe(event, handler, self, ...)
+    elseif dynamic[event] then ns.Safe(event, dynamic[event], event, ...) end   -- dynamic handlers get (event, ...)
 end)

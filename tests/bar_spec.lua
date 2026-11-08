@@ -57,6 +57,7 @@ A.test("layout variants: single row, single column, mirror back on; assignments 
 end)
 A.test("the wrapper alpha is driven only by Bar.SetFadeAlpha", function()
     local h = host(); h.login(); local bar = h.ns.Bar
+    h.ns.profile.bar.visibility.enabled = false; h.ns.Visibility.SettingsChanged()
     A.equal(bar.wrapper.alpha, 1)
     A.equal(bar.SetFadeAlpha(0.35), true); A.equal(bar.wrapper.alpha, 0.35); A.equal(bar.GetFadeAlpha(), 0.35)
     A.equal(bar.SetFadeAlpha(7), true); A.equal(bar.wrapper.alpha, 1)
@@ -140,10 +141,7 @@ A.test("options table validates with AceConfigRegistry and has the spec'd pages"
     for _, page in ipairs({"general","bar","buttons","assignment","controller","profiles","diagnostics","about"}) do
         A.equal(opts.args[page] ~= nil, true, "page " .. page)
     end
-    local vis = opts.args.bar.args.visibility
-    A.equal(vis ~= nil, true); local n = 0
-    for k in pairs(vis.args) do n = n + 1 end
-    A.equal(n, 1, "Visibility is an empty placeholder page")
+    A.equal(opts.args.bar.args.visibility ~= nil, true)
     A.equal(opts.childGroups, "tree")
 end)
 A.test("options: get/set round-trip, rows derive from columns, single row/column turn mirror off", function()

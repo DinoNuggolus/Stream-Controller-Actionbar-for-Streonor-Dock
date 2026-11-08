@@ -16,7 +16,10 @@ Config.defaults = {
             mirrorControllerLayout=true, growX="right", growY="down", backgroundOpacity=0.65,
             borderStyle="thin", showPageIndicator=true,
             style="slate", border="Blizzard Tooltip", background="Blizzard Dialog Background Dark", font="Friz Quadrata TT",
-            statusbar="Blizzard", visibility={},
+            statusbar="Blizzard",
+            visibility={enabled=true, baseAlpha=0.35, visibleAlpha=1, fadeIn=0.15, fadeOut=0.30, fadeDelay=0.50,
+                match="ANY", hideWhenNone=false, conditions={mouseover=true, combat=true, target=true},
+                mouseoverMargin=8, lowHealthPct=30, modifier="SHIFT"},
             headerFade=true, headerFadedAlpha=0.05, headerFadeDuration=0.15},
         buttons = {stackCounts=true, cooldownGrayscale=true, cooldownSweep=true, cooldownNumbers=true,
             tooltips=true, pressedFlash=true, rangeTint=false, unusableTint=false, showGCD=false,
@@ -94,6 +97,42 @@ local function defaultOf(section, key)
     if key == nil then return plainCopy(d) end
     return plainCopy(d[key])
 end
+-- Visibility block: finite clamped numbers, enums, boolean condition set. Unknown condition IDs are dropped
+-- (counted in Config.unknownConditions for diagnostics).
+Config.unknownConditions = 0
+function Config.cleanVisibility(profile)
+    local d = Config.defaults.profile.bar.visibility
+    local bar = profile.bar
+    if type(rawget(bar, "visibility")) ~= "table" then bar.visibility = plainCopy(d) end
+    local v = bar.visibility
+    local function num(key, min, max, int)
+        local x = rawget(v, key)
+        if not Core.number(x) then x = d[key] end
+        x = math.max(min, math.min(max, x))
+        if int then x = math.floor(x + 0.5) end
+        v[key] = x
+    end
+    if type(rawget(v, "enabled")) ~= "boolean" then v.enabled = d.enabled end
+    if type(rawget(v, "hideWhenNone")) ~= "boolean" then v.hideWhenNone = d.hideWhenNone end
+    num("baseAlpha", 0, 1); num("visibleAlpha", 0, 1)
+    num("fadeIn", 0, 5); num("fadeOut", 0, 5); num("fadeDelay", 0, 10)
+    num("mouseoverMargin", 0, 40, true); num("lowHealthPct", 1, 100, true)
+    if v.baseAlpha > v.visibleAlpha then v.baseAlpha = v.visibleAlpha end
+    if v.match ~= "ANY" and v.match ~= "ALL" then v.match = d.match end
+    if v.modifier ~= "SHIFT" and v.modifier ~= "CTRL" and v.modifier ~= "ALT" then v.modifier = d.modifier end
+    if type(rawget(v, "conditions")) ~= "table" then v.conditions = plainCopy(d.conditions) end
+    local known = Config.CONDITION_IDS or {}
+    Config.unknownConditions = 0
+    for k, val in pairs(v.conditions) do
+        if type(val) ~= "boolean" or not known[k] then
+            if not known[k] then Config.unknownConditions = Config.unknownConditions + 1 end
+            v.conditions[k] = nil
+        end
+    end
+end
+Config.CONDITION_IDS = {mouseover=true, target=true, hostileTarget=true, combat=true, noCombat=true, group=true,
+    raid=true, instance=true, pvp=true, mounted=true, resting=true, flying=true, casting=true, lowHealth=true, modifier=true}
+
 function Config.cleanProfile(profile)
     for _, section in ipairs({"general","bar","buttons","highlight"}) do
         if type(rawget(profile, section)) ~= "table" then profile[section] = defaultOf(section) end
@@ -118,7 +157,7 @@ function Config.cleanProfile(profile)
     local ok = type(c) == "table"
     if ok then for i=1,4 do if not (Core.number(c[i]) and c[i] >= 0 and c[i] <= 1) then ok = false end end end
     if not ok then hl.color = defaultOf("highlight", "color") end
-    if type(rawget(profile.bar, "visibility")) ~= "table" then profile.bar.visibility = {} end
+    Config.cleanVisibility(profile)
     Core.ensurePages(profile)
     if type(profile.id)~="string" or profile.id=="" then profile.id = Config.newId() end
 end

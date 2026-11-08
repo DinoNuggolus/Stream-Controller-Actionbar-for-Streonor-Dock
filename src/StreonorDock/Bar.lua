@@ -190,7 +190,6 @@ end
 -- effective alpha is header alpha x wrapper (bar-wide fader) alpha: the two are independent and multiply.
 -- Forced fully visible in assignment mode. Only a header-local OnUpdate runs, and only while animating.
 local hovered, headerAlpha, headerTarget = false, 1, 1
-local HOVER_MARGIN = 8
 local function headerGoal()
     local p = profile()
     if not p or not p.bar.headerFade or assigning() or hovered then return 1 end
@@ -217,11 +216,23 @@ function Bar.UpdateHeaderFade()
     if p and p.bar.headerFadeDuration <= 0 then headerAlpha = headerTarget; header:SetAlpha(headerAlpha); return end
     header:SetScript("OnUpdate", headerStep)
 end
-local function recheckHover()
-    local over = wrapper and wrapper:IsMouseOver(HOVER_MARGIN, -HOVER_MARGIN, -HOVER_MARGIN, HOVER_MARGIN) or false
-    if over ~= hovered then hovered = over; Bar.UpdateHeaderFade() end
+local function margin()
+    local v = profile() and profile().bar.visibility
+    return v and v.mouseoverMargin or 8
 end
-local function onEnter() if not hovered then hovered = true; Bar.UpdateHeaderFade() end end
+local function setHovered(value)
+    if value == hovered then return end
+    hovered = value
+    Bar.UpdateHeaderFade()
+    if ns.Visibility then ns.Visibility.SetHover(value) end
+end
+local function recheckHover()
+    local m = margin()
+    setHovered(wrapper and wrapper:IsMouseOver(m, -m, -m, m) or false)
+end
+function Bar.UpdateHover() recheckHover() end
+function Bar.IsHovered() return hovered end
+local function onEnter() setHovered(true) end
 local function onLeave()
     -- Leaving one child usually means entering another: resolve after the enters have run.
     if type(C_Timer) == "table" and type(C_Timer.After) == "function" then C_Timer.After(0.05, recheckHover) else recheckHover() end
