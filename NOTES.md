@@ -1,4 +1,55 @@
-﻿# StreonorDock dev log
+# StreonorDock dev log
+
+## 0.3.0 rebuild (2026-11-08): ui-spec V4 phases 1-4
+Status: host-tested only; not yet verified in the game client. Older entries below are history of the
+removed LCD/currency/timer design.
+
+### Done
+* Phase 1: removed readouts, currency, logging switches, press timers/estimates/learning, count/status export.
+  AceDB-3.0 profile per character (schema 2), idempotent migration of the 0.2 data (slots/pages/profile id/
+  current page/CENTER position kept; readouts, revision, settings, learned data archived under
+  `StreonorDockCharDB.archive` and `StreonorDockDB.global.archive.account`). Minimal icon export schema 2.
+* Phase 2: bar wrapper (single alpha owner: `ns.Bar.SetFadeAlpha`), header with padlock/cog, 5x3 controller
+  layout (slot 1 bottom-left, right then up), Mirror/row/column/orientation/grow, scale/size/spacing/opacity,
+  AceConfig settings (General, Bar [Layout, Appearance, empty Visibility placeholder], Buttons, Assignment,
+  Controller, Profiles, Diagnostics, About), minimap button.
+* Phase 3: assignment mode, overlay, drag/drop (cursor + internal swap/move/outside-clear), Spells/Items menu,
+  reload popup, temporary reveal, combat pause.
+* Phase 4: stack badge, charge badge, OmniCC-style cooldown, shared 10 Hz ticker, coalesced events.
+
+### Decisions
+* Libs: Ace3 event/timer/console/hook/locale NOT embedded (project rule: one event frame + C_Timer).
+  LibActionButton-1.0 NOT used: its action-slot/state-driver model cannot give one-press-one-use; chord targets and
+  bar buttons stay plain SecureActionButtonTemplate with `*type1` attributes and AnyDown + useOnKeyDown.
+  LibKeyBound not used (fixed chords).
+* Menus: native `MenuUtil.CreateContextMenu` first, LibUIDropDownMenu-4.0 fallback; chosen backend shown in
+  Settings > Diagnostics once a menu was opened.
+* Custom (non-Ace) elements: header padlock/cog glyphs (drawn from rectangles), dashed assignment frame, the
+  drag icon. Everything else is AceConfig/AceGUI/LSM widgets. The spec's checkbox dropdown belongs to the
+  Visibility engine and is not built here.
+* Grayscale cooldown is approximated: the swipe texture is the icon tinted grey (true per-region desaturation is
+  not available through the Cooldown widget). Verify the look in game.
+* Minimap icon uses the client's `Interface\Icons\INV_Misc_Gear_01` by path (no art stored in the repo).
+
+### Not built (by request)
+Visibility-conditions engine, tutorial tips. `Bar.SetFadeAlpha(alpha)` is the hook; Settings > Bar > Visibility is
+an empty placeholder page.
+
+### In-game checklist (after /reload)
+1. One press = one use: press each of a spell key and an item key once (also hold ~3 s): `/sdock clicks` must show
+   down 1, up 0, attempts 1 per press; the action happens once. Try with the bar hidden and in combat.
+2. Bar: centred; drag header; padlock; cog; `/sdock reset position`; Mirror layout slot order 1..5 bottom row.
+3. Assignment: drag spell/item; click menu (Spells by tab, Items by class, stack counts); swap; drop outside to clear;
+   Escape cancels drag; lock shows Reload/Cancel only if something changed; Cancel then relock = silent.
+4. `/sdock spellprobe`: report General vs spec tab lines and whether passives/lower ranks look right.
+5. Cooldown: use an item/spell with a cooldown out of and in combat; 89/90 s style thresholds; numbers; zero stack.
+6. `/sdock probe`: note MenuUtil / Settings / StaticPopup availability.
+7. Reload and check the plugin keys show the new icons (restart Streonor after deploying the plugin).
+
+
+---
+
+# StreonorDock dev log
 
 ## First-playtest export fix (2026-11-07)
 - User evidence: the saved export had moneyCopper=0, freeBagSlots=0, and count=0 for

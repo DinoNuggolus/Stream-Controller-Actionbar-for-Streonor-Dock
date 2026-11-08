@@ -131,3 +131,69 @@ function Game.Build()
     local ok, version, build = pcall(GetBuildInfo)
     if ok and type(plain(version))=="string" and type(plain(build))=="string" then return version .. "." .. build end
 end
+
+-- ------------------------------------------------------------------ cooldown / charge readers (bar display)
+-- Spell cooldown. Returns {object=opaque|nil, start=, duration=, onGCD=bool, secret=bool}. The duration
+-- object is NEVER inspected here (it may be restricted); numeric fields are present only when plain.
+function Game.SpellCooldown(spellID, ignoreGCD)
+    local out = {}
+    spellID = positiveInteger(spellID)
+    if not spellID then return out end
+    local C_Spell = lib("C_Spell")
+    if type(C_Spell.GetSpellCooldownDuration) == "function" then
+        local ok, object = pcall(C_Spell.GetSpellCooldownDuration, spellID, ignoreGCD ~= false)
+        if ok and object ~= nil then out.object = object end
+    end
+    local ok, info = call(C_Spell.GetSpellCooldown, spellID)
+    if ok then
+        if issecret(info) then out.secret = true
+        elseif type(info) == "table" then
+            if issecret(info.startTime) or issecret(info.duration) then out.secret = true
+            else
+                out.start, out.duration = finite(info.startTime), finite(info.duration)
+                out.onGCD = plain(info.isOnGCD) == true
+            end
+        end
+    end
+    return out
+end
+-- Charges: {current=, max=} (plain, max>1 only) | nil, secret=bool. Recharge duration object when offered.
+function Game.SpellCharges(spellID)
+    spellID = positiveInteger(spellID)
+    if not spellID then return nil end
+    local C_Spell = lib("C_Spell")
+    local ok, info = call(C_Spell.GetSpellCharges, spellID)
+    if not ok then return nil end
+    if issecret(info) then return nil, true end
+    if type(info) ~= "table" then return nil end
+    if issecret(info.currentCharges) or issecret(info.maxCharges) then return nil, true end
+    local current, max = finite(info.currentCharges), positiveInteger(info.maxCharges)
+    if not current or not max or max < 2 then return nil end
+    local object
+    if type(C_Spell.GetSpellChargeDuration) == "function" then
+        local okObj, obj = pcall(C_Spell.GetSpellChargeDuration, spellID)
+        if okObj then object = obj end
+    end
+    return {current = current, max = max, object = object}
+end
+-- Item cooldown: numeric only when plain and enabled. Returns {start=,duration=} | {unavailable=true}.
+function Game.ItemCooldown(itemID)
+    itemID = positiveInteger(itemID)
+    local fn = lib("C_Item").GetItemCooldown
+    if not itemID or type(fn) ~= "function" then return {unavailable = true} end
+    local ok, start, duration, enabled = pcall(fn, itemID)
+    if not ok or issecret(start) or issecret(duration) or issecret(enabled) then return {unavailable = true} end
+    start, duration = finite(start), finite(duration)
+    if not start or not duration then return {unavailable = true} end
+    if enabled == false or enabled == 0 then return {unavailable = true} end
+    return {start = start, duration = duration}
+end
+-- Remaining seconds of an opaque duration object when (and only when) the number is plain.
+function Game.ObjectRemaining(object)
+    if object == nil then return nil end
+    local fn = type(object) == "table" and object.GetRemainingDuration or nil
+    if type(fn) ~= "function" then return nil end
+    local ok, remaining = pcall(fn, object)
+    if not ok then return nil end
+    return finite(remaining)
+end

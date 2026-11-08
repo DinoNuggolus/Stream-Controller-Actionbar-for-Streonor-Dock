@@ -105,10 +105,20 @@ function ns.host(options)
         function methods:GetFrameLevel() return self.level or 1 end
         function methods:CreateTexture() return object("Texture") end
         function methods:CreateFontString() return object("FontString") end
+        function methods:GetTexture() return self.texture end
         function methods:IsMouseOver() return h.mouseOver == self end
         function methods:IsOwned(owner) return self.owner==owner end
         function methods:SetOwner(owner) self.owner=owner end
-        return setmetatable(o, {__index=function(_, key) return methods[key] or ((type(key)=="string" and string.find(key, "^%u")) and noop or nil) end})
+        o.last = {}
+        local recorders = {}
+        return setmetatable(o, {__index=function(self, key)
+            if methods[key] then return methods[key] end
+            if type(key)=="string" and string.find(key, "^%u") then
+                -- unmodelled widget methods are recorded: o.last.SetDesaturated = {true}
+                recorders[key] = recorders[key] or function(me, ...) me.last[key] = {...} end
+                return recorders[key]
+            end
+        end})
     end
     h.object = object
     env.CreateFrame = function(kind, name, parent, template)
@@ -146,6 +156,8 @@ function ns.host(options)
         RequestLoadSpellData=function(id) h.requests[#h.requests+1]="spell:" .. id end,
         GetSpellCooldown=function(id) return h.spellCd[id] end,
         GetSpellCharges=function(id) return h.charges[id] end,
+        GetSpellCooldownDuration=function(id) return h.spellDur and h.spellDur[id] end,
+        GetSpellChargeDuration=function(id) return h.chargeDur and h.chargeDur[id] end,
     }
     env.C_Item = {
         GetItemIconByID=function(id) local i=h.items[id]; return i and i.icon end,

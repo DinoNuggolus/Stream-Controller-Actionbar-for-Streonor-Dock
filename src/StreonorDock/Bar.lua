@@ -251,6 +251,10 @@ local function buildButton(i)
     b.cooldown = make("Cooldown", nil, b, "CooldownFrameTemplate")
     b.cooldown:SetAllPoints(b.icon)
     if has(b.cooldown, "SetDrawEdge") then b.cooldown:SetDrawEdge(false) end
+    -- Recharge sweep for spells with charges (never dims an otherwise usable spell).
+    b.chargeCooldown = make("Cooldown", nil, b, "CooldownFrameTemplate")
+    b.chargeCooldown:SetAllPoints(b.icon)
+    if has(b.chargeCooldown, "SetDrawEdge") then b.chargeCooldown:SetDrawEdge(false) end
     -- text layer above the sweep
     b.text = CreateFrame("Frame", nil, b)
     b.text:SetAllPoints()
@@ -306,6 +310,7 @@ function Bar.Tooltip(button)
     if slot.kind == "spell" and has(GameTooltip, "SetSpellByID") then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, slot.id)
     elseif slot.kind == "item" and has(GameTooltip, "SetItemByID") then shown = pcall(GameTooltip.SetItemByID, GameTooltip, slot.id) end
     if not shown then GameTooltip:SetText((slot.kind == "spell" and "Spell " or "Item ") .. slot.id) end
+    if button.cdUnavailable then GameTooltip:AddLine("Cooldown unavailable", 0.8, 0.8, 0.8) end
     if not button.streonorKind then GameTooltip:AddLine("Not usable yet: the spell is not known or the item is not available.", 1, 0.5, 0.3, true) end
     GameTooltip:Show()
 end
@@ -379,6 +384,7 @@ function Bar.Layout()
     Bar.ApplyAppearance()
     if not wrapper:IsShown() then wrapper:Show() end
     Bar.ApplyHeader()
+    if ns.Display then ns.Display.Refresh() end   -- newly shown buttons get their count/cooldown
 end
 
 function Bar.ApplyHeader()
