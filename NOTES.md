@@ -156,3 +156,7 @@ Assumption updates (replace items 1 and 4 above):
 4. `*type1`/`*spell1`/`*item1` match any modifier with the LeftButton binding click.
 16. Bindings.xml `<Binding name="CLICK StreonorDockSlotN:LeftButton"></Binding>` (empty body)
     appears in the Key Bindings UI under its header.
+
+## Login population (2026-11-07)
+- Host login with uncached data and with a missed *_DATA_LOAD_RESULT: panel filled via events already. Added Export.RetryMetadata 3s/8s after PLAYER_ENTERING_WORLD as a safety net (66 tests). Unverified in game.
+- SavedVariables reach disk only on /reload or logout, so the controller shows the previous save right after login.
