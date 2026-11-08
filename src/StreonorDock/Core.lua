@@ -248,6 +248,12 @@ function Core.buildExport(state, now, issecret, providers, previous)
                     elseif source=="used" then
                         out.source=source  -- pressed, length unknown: no countdown claimed
                     end
+                    -- Known press-timer length for the controller plugin (never invented).
+                    local secs, origin, pool = plain(data.cooldownSeconds), plain(data.cooldownSource), plain(data.poolKey)
+                    if number(secs) and secs>1.5 and secs<=86400 and (origin=="learned" or origin=="verified" or origin=="table") then
+                        out.cooldownSeconds=secs; out.cooldownSource=origin
+                        if type(pool)=="string" and #pool<=64 and string.match(pool,"^[%w_:]+$") then out.poolKey=pool end
+                    end
                 end
             end
             result[area][i]=out

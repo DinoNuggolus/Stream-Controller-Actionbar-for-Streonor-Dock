@@ -595,3 +595,20 @@ A.test("missed data-load event: delayed login retry still fills icons and counts
     A.equal(b.icon.texture,500); A.equal(b.count.text,"4")
     A.equal(h2.env.StreonorDockDB.export.slots[2].iconFileID,500)
 end)
+A.test("export carries known press-timer lengths (learned, table + pool key); unknown exports none",function()
+    local potion
+    local probe=host()
+    for id, key in pairs(probe.ns.ItemGroups) do if key=="health_potion" then potion=id; break end end
+    A.equal(potion~=nil,true)
+    local h=host({db={cooldownLearned={items={[8]={duration=120,verified=true},[9]={duration=45}}}}})
+    h.items[8]={name="Windstone",icon=500,count=1}; h.items[9]={name="Odd",icon=501,count=1}
+    h.items[potion]={name="Potion",icon=502,count=2}; h.items[7]={name="Plain",icon=503,count=1}
+    h.login()
+    h.ns.Edit("slots",1,{kind="item",id=8}); h.ns.Edit("slots",2,{kind="item",id=9})
+    h.ns.Edit("slots",3,{kind="item",id=potion}); h.ns.Edit("slots",4,{kind="item",id=7})
+    local e=h.env.StreonorDockDB.export
+    A.equal(e.slots[1].cooldownSeconds,120); A.equal(e.slots[1].cooldownSource,"verified"); A.equal(e.slots[1].poolKey,nil)
+    A.equal(e.slots[2].cooldownSeconds,45); A.equal(e.slots[2].cooldownSource,"learned")
+    A.equal(e.slots[3].cooldownSeconds,120); A.equal(e.slots[3].cooldownSource,"table"); A.equal(e.slots[3].poolKey,"pool:potion")
+    A.equal(e.slots[4].cooldownSeconds,nil); A.equal(e.slots[4].cooldownSource,nil)
+end)

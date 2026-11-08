@@ -294,6 +294,19 @@ local function rawProviders()
                 if not items[itemID] then
                     local name, icon = Export.ItemMeta(itemID)
                     local entry = {name=name, iconFileID=icon, count=Export.ItemCount(itemID)}
+                    if tracker then
+                        -- Learned/shipped press-timer length only (base-API, dormant and unknown are not exported).
+                        local length, origin = tracker:pressDuration(itemID)
+                        if length and length>0 and origin~="base" and origin~="dormant" then
+                            local verified
+                            if origin=="item" then verified = tracker.store.items[itemID].verified
+                            elseif origin=="group" then verified = tracker.store.groups[tracker:group(itemID)].verified end
+                            entry.cooldownSeconds = length
+                            entry.cooldownSource = (origin=="table") and "table" or (verified and "verified" or "learned")
+                            local key = tracker:key(itemID)
+                            if type(key)=="string" then entry.poolKey = (string.gsub(key, "[^%w_:]", "_")) end
+                        end
+                    end
                     if tracker and now then
                         local endsAt, _, source = tracker:timer(itemID, now)  -- source game|est|used
                         if source then entry.source=source end
