@@ -19,6 +19,8 @@ Export.lua
 Menu.lua
 Glow.lua
 Bar.lua
+Catalog.lua
+Assign.lua
 Minimap.lua
 Options.lua
 Init.lua

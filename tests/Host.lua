@@ -105,6 +105,7 @@ function ns.host(options)
         function methods:GetFrameLevel() return self.level or 1 end
         function methods:CreateTexture() return object("Texture") end
         function methods:CreateFontString() return object("FontString") end
+        function methods:IsMouseOver() return h.mouseOver == self end
         function methods:IsOwned(owner) return self.owner==owner end
         function methods:SetOwner(owner) self.owner=owner end
         return setmetatable(o, {__index=function(_, key) return methods[key] or ((type(key)=="string" and string.find(key, "^%u")) and noop or nil) end})
@@ -154,6 +155,13 @@ function ns.host(options)
             local i=h.items[id]; local cd=i and i.cd or {0,0,true}
             return cd[1], cd[2], cd[3]
         end,
+        GetItemInfoInstant=function(id)
+            local i = h.items[id]
+            if i and i.class then return id, i.typeName, i.subName, "", i.icon, i.class, i.sub end
+            return id
+        end,
+        GetItemClassInfo=function(c) return h.classNames and h.classNames[c] end,
+        GetItemSubClassInfo=function(c, s) return h.subNames and h.subNames[c .. "." .. s] end,
         RequestLoadItemDataByID=function(id) h.requests[#h.requests+1]="item:" .. id end,
     }
     h.bags = options.bags or {}   -- h.bags[bag][slot] = {itemID=, stackCount=}
@@ -185,6 +193,9 @@ function ns.host(options)
     env.GetCurrentRegion = function() return 1 end
     env.ReloadUI = function() h.reloaded = (h.reloaded or 0) + 1 end
     env.StaticPopupDialogs = {}
+    env.UISpecialFrames = {}
+    env.GetCursorPosition = function() return 0, 0 end
+    env.StaticPopup_Hide = function(which) h.popupHidden = (h.popupHidden or 0) + 1 end
     env.StaticPopup_Show = function(which, ...) h.popups[#h.popups+1] = {which=which, args={...}}; return {} end
     h.popups = {}
     local allowed = {StreonorDockDB=true, StreonorDockCharDB=true, WOW_PROJECT_ID=true, GetBuildInfo=true,
