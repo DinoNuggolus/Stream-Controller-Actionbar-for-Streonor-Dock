@@ -214,7 +214,7 @@ end)
 A.test("style presets: slate default, parchment applies LSM keys, picking a border switches to custom", function()
     local h = host(); h.login()
     local look = h.ns.Options.Build().args.bar.args.look.args
-    A.equal(h.ns.profile.bar.style, "slate")
+    A.equal(h.ns.profile.bar.style, "flat"); A.equal(h.ns.profile.bar.background, "Solid")
     look.skin.set(nil, "parchment")
     A.equal(h.ns.profile.bar.background, "Blizzard Parchment"); A.equal(h.ns.profile.bar.style, "parchment")
     look.border.set(nil, "Blizzard Dialog"); A.equal(h.ns.profile.bar.style, "custom")

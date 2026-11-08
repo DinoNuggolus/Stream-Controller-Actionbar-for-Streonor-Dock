@@ -19,27 +19,17 @@ local function fillNative(desc, entries)
         else
             local item
             local func = e.func
+            -- The icon is part of the label (inline |T texture |t) so the menu lays out text and icon
+            -- together: no overlay texture that can cover the first letters of a row.
+            local label = e.text or ""
+            if e.icon then label = "|T" .. tostring(e.icon) .. ":16:16:0:0|t " .. label end
             if e.checked ~= nil and has(desc, "CreateCheckbox") then
-                item = desc:CreateCheckbox(e.text or "", function() return e.checked end, func)
+                item = desc:CreateCheckbox(label, function() return e.checked end, func)
             else
-                item = desc:CreateButton(e.text or "", e.submenu and nil or func)
+                item = desc:CreateButton(label, e.submenu and nil or func)
             end
             if item then
                 if e.disabled and has(item, "SetEnabled") then item:SetEnabled(false) end
-                if e.icon and has(item, "AddInitializer") then
-                    pcall(item.AddInitializer, item, function(button)
-                        local tex = button.Icon or button.icon
-                        if not tex and has(button, "AttachTexture") then
-                            local ok, made = pcall(button.AttachTexture, button)
-                            tex = ok and made or nil
-                        end
-                        if tex and has(tex, "SetTexture") then
-                            tex:SetTexture(e.icon)
-                            if has(tex, "SetSize") then tex:SetSize(16, 16) end
-                            if has(tex, "SetPoint") then tex:SetPoint("LEFT", button, "LEFT", 2, 0) end
-                        end
-                    end)
-                end
                 if e.tooltip and has(item, "SetTooltip") then
                     pcall(item.SetTooltip, item, function(tooltip) tooltip:SetText(e.tooltip, 1, 1, 1, 1, true) end)
                 end

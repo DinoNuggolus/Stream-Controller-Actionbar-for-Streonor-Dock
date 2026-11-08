@@ -15,7 +15,7 @@ Config.defaults = {
         bar = {scale=1, buttonSize=40, spacing=4, orientation="horizontal", columns=5,
             mirrorControllerLayout=true, growX="right", growY="down", backgroundOpacity=0.65,
             borderStyle="thin", showPageIndicator=true,
-            style="slate", border="Blizzard Tooltip", background="Blizzard Dialog Background Dark", font="Friz Quadrata TT",
+            style="flat", border="Blizzard Tooltip", background="Solid", font="Friz Quadrata TT",
             statusbar="Blizzard",
             visibility={enabled=true, baseAlpha=0.35, visibleAlpha=1, fadeIn=0.15, fadeOut=0.30, fadeDelay=0.50,
                 match="ANY", hideWhenNone=false, conditions={mouseover=true, combat=true, target=true},
@@ -50,7 +50,7 @@ local E = {
     {"bar","growY","enum",{"up","down"}}, {"bar","backgroundOpacity","num",0,1},
     {"bar","borderStyle","enum",{"none","thin","glow"}}, {"bar","showPageIndicator","bool"},
     {"bar","headerFade","bool"}, {"bar","headerFadedAlpha","num",0,1}, {"bar","headerFadeDuration","num",0,2},
-    {"bar","style","enum",{"slate","parchment","custom"}}, {"bar","border","string"}, {"bar","background","string"}, {"bar","font","string"}, {"bar","statusbar","string"},
+    {"bar","style","enum",{"flat","slate","parchment","custom"}}, {"bar","border","string"}, {"bar","background","string"}, {"bar","font","string"}, {"bar","statusbar","string"},
     {"buttons","stackCounts","bool"}, {"buttons","cooldownGrayscale","bool"}, {"buttons","cooldownSweep","bool"},
     {"buttons","cooldownNumbers","bool"}, {"buttons","tooltips","bool"}, {"buttons","pressedFlash","bool"},
     {"buttons","rangeTint","bool"}, {"buttons","unusableTint","bool"}, {"buttons","showGCD","bool"},
@@ -62,6 +62,8 @@ local E = {
 Config.SPEC = E
 -- Look presets (LibSharedMedia keys + tints). Picking a border/background yourself switches to "custom".
 Config.STYLES = {
+    flat = {label = "Flat (default)", background = "Solid", border = "Blizzard Tooltip",
+        tint = {0.04, 0.05, 0.07}, edge = {0.55, 0.57, 0.62}, header = {1, 1, 1, 0.07}},
     slate = {label = "Slate", background = "Blizzard Dialog Background Dark", border = "Blizzard Tooltip",
         tint = {0.62, 0.68, 0.85}, edge = {0.62, 0.65, 0.75}, header = {0, 0, 0, 0.55}},
     parchment = {label = "Parchment-lite", background = "Blizzard Parchment", border = "Blizzard Tooltip",

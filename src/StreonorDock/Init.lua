@@ -203,7 +203,8 @@ local function dataLoaded(kind, id, success)
     ns.Export.MarkDirty()
 end
 function handlers.SPELL_DATA_LOAD_RESULT(_, id, success) dataLoaded("spell", id, success) end
-function handlers.ITEM_DATA_LOAD_RESULT(_, id, success) dataLoaded("item", id, success) end
+function handlers.ITEM_DATA_LOAD_RESULT(_, id, success) dataLoaded("item", id, success); if loaded and ns.Assign then ns.Safe("assign items", ns.Assign.ItemInfoReceived) end end
+function handlers.GET_ITEM_INFO_RECEIVED() if loaded and ns.Assign then ns.Safe("assign items", ns.Assign.ItemInfoReceived) end end
 function handlers.BAG_UPDATE_DELAYED()
     if not loaded then return end
     if ns.Display then ns.Safe("display bags", ns.Display.BagsChanged) end

@@ -44,8 +44,8 @@ local function started(options)
     local env, known = world(options.lines or druid)
     local h = host({env = env, bags = options.bags})
     h.known = known
-    h.items[8] = {name = "Water", icon = 500, count = 5, class = 0, sub = 5, typeName = "Consumable", subName = "Food & Drink"}
-    h.items[9] = {name = "Bandage", icon = 501, count = 3, class = 0, sub = 7, typeName = "Consumable", subName = "Bandage"}
+    h.items[8] = {name = "Water", icon = 500, count = 5, class = 0, sub = 5, typeName = "Consumable", subName = "Food & Drink", spell = "Drink"}
+    h.items[9] = {name = "Bandage", icon = 501, count = 3, class = 0, sub = 7, typeName = "Consumable", subName = "Bandage", spell = "First Aid"}
     h.items[10] = {name = "Ore", icon = 502, count = 2, class = 7, sub = 7, typeName = "Trade Goods", subName = "Metal & Stone"}
     h.items[11] = {name = "Mystery", icon = 503, count = 1}   -- no class data yet
     h.classNames = {[0] = "Consumable", [7] = "Trade Goods"}
@@ -199,20 +199,55 @@ A.test("click opens Spells / Items / Clear slot; spell tabs by skill line, ranks
     A.equal(cap.entries[4].disabled, false)
     cap.entries[4].func(); A.deep(h.ns.CurrentPage()[2], {kind = "empty"})
 end)
-A.test("items: bags only, game classification, stack totals, unknown class excluded, sorted", function()
+A.test("items: only items with a use effect, grouped by game class, stack totals, empty categories gone", function()
     local h = started(); h.ns.Assign.Unlock()
     local cap = menuCapture(h)
     h.ns.Assign.OnSlotClick(1, "LeftButton", h.ns.Bar.buttons[1].overlay)
     local items = cap.entries[2].submenu
-    A.equal(#items, 2); A.equal(items[1].text, "Consumable"); A.equal(items[2].text, "Trade Goods")
+    A.equal(#items, 1, "Trade Goods (Ore has no use effect) and the unclassified item are gone")
+    A.equal(items[1].text, "Consumable")
     local subs = items[1].submenu
     A.equal(subs[1].text, "Bandage"); A.equal(subs[2].text, "Food & Drink")
     A.equal(subs[2].submenu[1].text, "Water x5", "stacks across bag slots are totalled")
     A.equal(subs[1].submenu[1].text, "Bandage x3")
-    for _, class in ipairs(items) do for _, sub in ipairs(class.submenu) do for _, it in ipairs(sub.submenu) do
-        A.equal(it.text:find("Mystery"), nil, "item without class data is not guessed")
-    end end end
     subs[2].submenu[1].func(); A.deep(h.ns.CurrentPage()[1], {kind = "item", id = 8})
+end)
+A.test("usable filter: trinket with an on-use effect stays, plain gear and quest items without one go", function()
+    local h = started()
+    h.items[20] = {name = "Sunfire Trinket", icon = 600, count = 1, class = 4, sub = 0, typeName = "Armor", subName = "Miscellaneous", spell = "Sunfire"}
+    h.items[21] = {name = "Plain Helm", icon = 601, count = 1, class = 4, sub = 1, typeName = "Armor", subName = "Cloth"}
+    h.items[22] = {name = "Quest Letter", icon = 602, count = 1, class = 12, sub = 0, typeName = "Quest", subName = "Quest"}
+    h.items[23] = {name = "Linen Cloth", icon = 603, count = 6, class = 7, sub = 5, typeName = "Trade Goods", subName = "Cloth"}
+    h.bags[2] = {size = 4, {itemID = 20, stackCount = 1}, {itemID = 21, stackCount = 1}, {itemID = 22, stackCount = 1}, {itemID = 23, stackCount = 6}}
+    h.classNames[4] = "Armor"; h.subNames["4.0"] = "Miscellaneous"
+    h.ns.Assign.Unlock(); local cap = menuCapture(h)
+    h.ns.Assign.OnSlotClick(1, "LeftButton", h.ns.Bar.buttons[1].overlay)
+    local labels = {}
+    for _, c in ipairs(cap.entries[2].submenu) do labels[#labels + 1] = c.text end
+    A.deep(labels, {"Armor", "Consumable"})
+    A.equal(cap.entries[2].submenu[1].submenu[1].submenu[1].text, "Sunfire Trinket")
+end)
+A.test("item data not loaded yet: excluded until known, requested, then the menu rebuilds once and keeps its items", function()
+    local h = started()
+    h.items[30] = {name = "Elixir", icon = 700, count = 2, class = 0, sub = 2, typeName = "Consumable", subName = "Elixir", cached = false}
+    h.bags[3] = {size = 1, {itemID = 30, stackCount = 2}}
+    h.subNames["0.2"] = "Elixir"
+    h.ns.Assign.Unlock(); local cap = menuCapture(h)
+    h.ns.Assign.OnSlotClick(1, "LeftButton", h.ns.Bar.buttons[1].overlay)
+    local function hasElixir(entries)
+        for _, c in ipairs(entries[2].submenu) do for _, s in ipairs(c.submenu) do for _, it in ipairs(s.submenu) do
+            if it.text:find("Elixir") then return true end end end end
+        return false
+    end
+    A.equal(hasElixir(cap.entries), false); A.equal(h.requests[#h.requests], "item:30")
+    h.items[30].cached = nil; h.items[30].spell = "Elixir Effect"
+    cap.entries = nil; h.event("GET_ITEM_INFO_RECEIVED", 30, true)
+    A.equal(cap.entries ~= nil and hasElixir(cap.entries), true, "menu rebuilt with the item")
+    cap.entries = nil; h.event("GET_ITEM_INFO_RECEIVED", 30, true)
+    A.equal(cap.entries, nil, "rebuilt once only")
+    h.items[30].spell = nil   -- data churn must not drop a known-usable item
+    h.ns.Assign.OnSlotClick(1, "LeftButton", h.ns.Bar.buttons[1].overlay)
+    A.equal(hasElixir(cap.entries), true)
 end)
 A.test("empty menus say None available; missing enumeration APIs explain instead of guessing", function()
     local h = host(); h.login(); h.ns.Assign.Unlock()
@@ -274,4 +309,25 @@ A.test("page or profile change while locked prompts the reload popup immediately
     h.ns.Assign.Lock(); A.equal(#h.popups, 2)
     h.ns.db:SetProfile("Other"); A.equal(#h.popups, 3, "profile switch while locked")
     h.combat = true; h.slash("page next"); A.equal(#h.popups, 3); h.combat = false
+end)
+
+A.test("menu rows carry their icon inline in the label (no overlay texture can clip the first letters)", function()
+    local h = host(); h.login()
+    local rows, initializers = {}, 0
+    local function node()
+        local n = {}
+        function n:CreateButton(text, fn) local c = node(); rows[#rows+1] = text; c.AddInitializer = function() initializers = initializers + 1 end; return c end
+        function n:CreateCheckbox(text) local c = node(); rows[#rows+1] = text; return c end
+        function n:CreateTitle() return node() end
+        function n:CreateDivider() end
+        function n:SetEnabled() end
+        return n
+    end
+    h.env.MenuUtil = {CreateContextMenu = function(owner, gen) gen(owner, node()) end}
+    h.ns.Menu.Show(h.env.UIParent, {{text = "General", icon = 136243, submenu = {{text = "Attack", icon = 132223}}},
+        {text = "Items", submenu = {{text = "Water x5", icon = "Interface\Icons\INV_Drink_01", checked = true}}}})
+    A.equal(initializers, 0, "no initializer repositions textures")
+    A.equal(rows[1], "|T136243:16:16:0:0|t General"); A.equal(rows[2], "|T132223:16:16:0:0|t Attack")
+    A.equal(rows[3], "Items"); A.equal(rows[4]:find("^|T") ~= nil and rows[4]:find("Water x5", 1, true) ~= nil, true)
+    A.equal(h.ns.Menu.backend, "MenuUtil")
 end)

@@ -124,7 +124,12 @@ function Catalog.ScanItems()
     for _, id in ipairs(order) do
         local ok, _, itemType, itemSubType, _, icon, classID, subClassID = call(items.GetItemInfoInstant, id)
         classID = ok and plain(classID) or nil
-        if type(classID) ~= "number" or classID ~= classID then
+        local usable = Game.ItemUsable(id)
+        if usable == nil then
+            pending = pending + 1   -- item data not loaded yet: decided on a later scan, never guessed
+        elseif usable == false then
+            -- no use effect (trade goods, junk, plain gear): not assignable
+        elseif type(classID) ~= "number" or classID ~= classID then
             pending = pending + 1   -- metadata not ready: never guess a class
         else
             subClassID = plain(subClassID); if type(subClassID) ~= "number" then subClassID = 0 end

@@ -1,5 +1,5 @@
 local addonName, ns = ...
--- Six-step first-run tour with hand-built, addon-owned callouts (original arrow, text, Next, X, n/6).
+-- Seven-step first-run tour with hand-built, addon-owned callouts (original arrow, text, Next, X, n/6).
 -- The native HelpTip path is deliberately not used: Aurora documents taint from touching pooled HelpTip
 -- fields on this client, so the owned callout is the baseline.
 -- State is ACCOUNT-wide in db.global.tutorial = {seen, hidePopups, completed} and has NO version key:
@@ -13,6 +13,7 @@ local STEPS = {
     {key = "bar", text = "Each button matches one controller key. One physical press is one use attempt: no hold repeat, no repeat on release."},
     {key = "padlock", text = "Unlock to assign spells and items. All 15 slots show while unlocked; lock when you are finished. Editing is out of combat only."},
     {key = "cog", text = "Open settings for appearance, pages and profiles. /sdock settings always works, even if you hide the cog."},
+    {key = "cog", text = "You can change the style in Settings > Bar > Appearance (borders, backgrounds, fonts and glow from SharedMedia)."},
     {key = "slot", text = "Drag a known spell or a carried item onto a slot, or click it for Spells / Items / Clear slot. This tour never changes your assignments."},
     {key = "popup", text = "After changing assignments, locking offers Reload so the controller shows the new icons. Cancel closes it with no reminder. (This is only an example.)"},
     {key = "minimap", text = "Left-click the minimap button for settings, right-click for assignment mode. /sdock assign works too."},

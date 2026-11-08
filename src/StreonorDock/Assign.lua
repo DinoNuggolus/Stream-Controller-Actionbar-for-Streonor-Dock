@@ -13,6 +13,7 @@ local generation = 0          -- bumped on lock/page/profile change: stale menus
 local dragSource, dragFrame
 local escapeFrame
 local POPUP = "STREONORDOCK_RELOAD"
+local menuRetry          -- {index, owner, generation} while a menu waits for item data
 
 function Assign.IsActive() return active end
 function Assign.IsTemporary() return active and temporary end
@@ -146,6 +147,7 @@ function Assign.OpenMenu(index, owner)
     if InCombatLockdown() then ns.Say("editing unavailable in combat"); return false end
     local data = ns.Catalog.Collect()
     local mine = generation
+    menuRetry = (data.pending or 0) > 0 and {index = index, owner = owner, generation = mine} or nil
     local function stale()
         if mine ~= generation or not active or InCombatLockdown() then
             ns.Say("that menu is out of date; open it again"); return true
@@ -263,6 +265,15 @@ function Assign.CombatEnded()
     if not active then return end
     paused = false
     if queuedLock then Assign.Lock() end
+end
+-- GET_ITEM_INFO_RECEIVED / ITEM_DATA_LOAD_RESULT: a menu opened while item data was missing is rebuilt
+-- ONCE with the now-known items (earlier decisions are cached, so nothing flickers out).
+function Assign.ItemInfoReceived()
+    local retry = menuRetry
+    if not retry or retry.generation ~= generation or not active or InCombatLockdown() then return end
+    menuRetry = nil
+    if ns.Menu then ns.Menu.Close() end
+    Assign.OpenMenu(retry.index, retry.owner)
 end
 -- Invalidate open menus when the underlying data changes.
 function Assign.SpellsChanged() generation = generation + 1 end

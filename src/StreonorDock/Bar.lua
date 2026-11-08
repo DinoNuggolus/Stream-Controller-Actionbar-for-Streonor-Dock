@@ -274,7 +274,7 @@ function Bar.ApplyAppearance()
     local p = profile()
     if not wrapper or not p or not has(wrapper, "SetBackdrop") then return end
     local bar = p.bar
-    local preset = ns.Config.STYLES[bar.style] or ns.Config.STYLES.slate
+    local preset = ns.Config.STYLES[bar.style] or ns.Config.STYLES.flat
     local borderStyle = bar.borderStyle
     local backdrop = {bgFile = fetch("background", bar.background, WHITE), tile = true, tileSize = 128,
         insets = {left = 3, right = 3, top = 3, bottom = 3}}

@@ -173,6 +173,8 @@ function ns.host(options)
             if i and i.class then return id, i.typeName, i.subName, "", i.icon, i.class, i.sub end
             return id
         end,
+        GetItemSpell=function(id) local i = h.items[id]; if i and i.spell then return i.spell, 1000 + id end end,
+        IsItemDataCachedByID=function(id) local i = h.items[id]; return i ~= nil and i.cached ~= false end,
         GetItemClassInfo=function(c) return h.classNames and h.classNames[c] end,
         GetItemSubClassInfo=function(c, s) return h.subNames and h.subNames[c .. "." .. s] end,
         RequestLoadItemDataByID=function(id) h.requests[#h.requests+1]="item:" .. id end,

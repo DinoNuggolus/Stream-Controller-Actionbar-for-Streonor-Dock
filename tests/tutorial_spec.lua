@@ -13,13 +13,13 @@ A.test("first login starts the tour once (3 s after world entry); the flag persi
     local h2 = host({db = h.env.StreonorDockDB, saved = h.env.StreonorDockCharDB}); h2.login(); h2.event("PLAYER_ENTERING_WORLD"); h2.runTimers()
     A.equal(h2.ns.Tutorial.running, false)
 end)
-A.test("Next walks six steps without touching assignments; the last one completes without hiding popups", function()
+A.test("Next walks seven steps without touching assignments; the last one completes without hiding popups", function()
     local h = host(); h.login(); h.event("PLAYER_ENTERING_WORLD"); h.runTimers()
     local before = snapshot(h)
     local callout = h.named("StreonorDockTutorial")
-    for step = 1, 6 do
-        A.equal(h.ns.Tutorial.step, step); A.equal(callout.progress.text, step .. "/6")
-        if step < 6 then h.fire(callout.next, "OnClick") end
+    for step = 1, 7 do
+        A.equal(h.ns.Tutorial.step, step); A.equal(callout.progress.text, step .. "/7")
+        if step < 7 then h.fire(callout.next, "OnClick") end
     end
     A.equal(callout.next.text, "Done")
     h.fire(callout.next, "OnClick")
@@ -68,8 +68,8 @@ A.test("hidden bar and minimap fall back to a centred callout; step 5 uses an in
     h.ns.Tutorial.Replay()
     local callout = h.named("StreonorDockTutorial")
     A.equal(callout.text.text:find("centre of the screen") ~= nil, true)
-    for _ = 1, 4 do h.fire(callout.next, "OnClick") end
-    A.equal(h.ns.Tutorial.step, 5)
+    for _ = 1, 5 do h.fire(callout.next, "OnClick") end
+    A.equal(h.ns.Tutorial.step, 6)
     local example = h.named("StreonorDockTutorialExample"); A.equal(example:IsShown(), true)
     A.equal(#h.popups, 0); A.equal(h.reloaded, nil)
     h.fire(callout.next, "OnClick"); A.equal(example:IsShown(), false)

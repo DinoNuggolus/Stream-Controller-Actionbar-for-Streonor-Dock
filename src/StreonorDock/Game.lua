@@ -200,3 +200,28 @@ function Game.ObjectRemaining(object)
     if not ok then return nil end
     return finite(remaining)
 end
+
+-- Does the item have a use effect? true | false | nil (item data not loaded yet; a load was requested).
+-- Decisions are cached once known so a menu rebuilt after more data arrives never drops an item.
+local usableCache = {}
+function Game.ItemUsable(itemID)
+    itemID = positiveInteger(itemID)
+    if not itemID then return false end
+    if usableCache[itemID] ~= nil then return usableCache[itemID] end
+    local items = lib("C_Item")
+    if type(items.GetItemSpell) ~= "function" then return nil end
+    local ok, name, spellID = pcall(items.GetItemSpell, itemID)
+    if ok and not issecret(name) and not issecret(spellID) and (positiveInteger(spellID) or (type(name) == "string" and name ~= "")) then
+        usableCache[itemID] = true
+        return true
+    end
+    local cached
+    if type(items.IsItemDataCachedByID) == "function" then
+        local okC, value = pcall(items.IsItemDataCachedByID, itemID)
+        cached = okC and plain(value) == true
+    end
+    if cached then usableCache[itemID] = false; return false end
+    request("item", itemID)
+    return nil
+end
+function Game.ForgetUsable() usableCache = {} end
