@@ -612,3 +612,30 @@ A.test("export carries known press-timer lengths (learned, table + pool key); un
     A.equal(e.slots[3].cooldownSeconds,120); A.equal(e.slots[3].cooldownSource,"table"); A.equal(e.slots[3].poolKey,"pool:potion")
     A.equal(e.slots[4].cooldownSeconds,nil); A.equal(e.slots[4].cooldownSource,nil)
 end)
+A.test("client logging switches: requested once per session, guarded, settings respected",function()
+    local calls={}
+    local function env() return {LoggingChat=function(v) calls[#calls+1]="chat:"..tostring(v) end,
+        LoggingCombat=function(v) calls[#calls+1]="combat:"..tostring(v) end} end
+    local h=host({env=env()})
+    h.login(); h.event("PLAYER_ENTERING_WORLD"); h.event("PLAYER_ENTERING_WORLD")
+    table.sort(calls); A.deep(calls,{"chat:true","combat:true"})
+    A.equal(h.env.StreonorDockDB.settings.logChat,true); A.equal(h.env.StreonorDockDB.settings.logCombat,true)
+    h.slash("log"); A.equal(h.said("chat logging: requested (unverified)"),true)
+    calls={}; h.slash("log chat off")
+    A.deep(calls,{"chat:false"}); A.equal(h.env.StreonorDockDB.settings.logChat,false)
+    A.equal(h.said("chat logging: off requested (unverified)"),true)
+    h.slash("log combat bogus"); A.equal(h.said("usage: /sdock log"),true)
+    -- Setting off at login: no call at all (never switches the user's own logging).
+    calls={}
+    local h2=host({env=env(),db={settings={logChat=false,logCombat=false}}})
+    h2.login(); h2.event("PLAYER_ENTERING_WORLD"); A.deep(calls,{})
+    h2.slash("log"); A.equal(h2.said("combat logging: disabled in settings"),true)
+    -- Read-back through C_ChatInfo when it exists; a throwing call and missing APIs are tolerated.
+    local h3=host({env={LoggingChat=function() end, LoggingCombat=function() error("boom") end,
+        C_ChatInfo={IsLoggingChat=function() return true end}}})
+    h3.login(); h3.slash("log")
+    A.equal(h3.said("chat logging: on"),true); A.equal(h3.said("combat logging: error"),true)
+    local h4=host(); h4.login(); h4.slash("log")
+    A.equal(h4.said("chat logging: unavailable"),true); A.equal(h4.said("combat logging: unavailable"),true)
+    A.equal(h4.internalErrors,0)
+end)

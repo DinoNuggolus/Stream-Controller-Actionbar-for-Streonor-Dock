@@ -148,7 +148,8 @@ function ns.host(options)
         GetSpellBaseCooldown=true, NUM_BAG_SLOTS=true, C_SpellBook=true, Enum=true,
         SetOverrideBindingClick=true, ClearOverrideBindings=true, GetBindingAction=true, issecretvalue=true,
         C_Spell=true, C_Item=true, C_Container=true, C_Timer=true, GetCVarBool=true, GetServerTime=true,
-        GetTime=true, GetMoney=true, GetCursorInfo=true, ClearCursor=true, GameTooltip=true}
+        GetTime=true, GetMoney=true, GetCursorInfo=true, ClearCursor=true, GameTooltip=true,
+        LoggingChat=true, LoggingCombat=true, C_ChatInfo=true}
     setmetatable(env, {__index=function(_, key)
         if not allowed[key] then error("unexpected global " .. tostring(key), 2) end
     end})

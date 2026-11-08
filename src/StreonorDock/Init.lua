@@ -69,6 +69,8 @@ local function sanitizeSettings(db)
     if type(db.settings)~="table" then db.settings={} end
     local e = db.settings.estimates
     if e~="on" and e~="off" then db.settings.estimates="auto" end
+    if db.settings.logChat~=false then db.settings.logChat=true end
+    if db.settings.logCombat~=false then db.settings.logCombat=true end
     ns.Export.ResetProbeForBuild(ns.Export.Build())
     if type(db.cooldownLearned)~="table" then db.cooldownLearned={} end
     if type(db.ui)~="table" then db.ui={} end
@@ -103,14 +105,58 @@ local function warnConflicts()
     local _, conflicts = ns.Secure.Conflicts()
     if conflicts>0 then say(conflicts .. " chord(s) also have other bindings; ours take precedence while loaded. /sdock chords") end
 end
+-- Client file logging switches (LogsWoWChatLog.txt / WoWCombatLog.txt) for an EXTERNAL reader.
+-- The addon only flips the client's own switches: it never reads or parses either log, registers no
+-- combat-log events, and never assumes the call worked (read back when a reader API exists).
+local logging = {chat="not requested", combat="not requested"}
+local logApi = {chat={fn="LoggingChat", read="IsLoggingChat", setting="logChat"},
+    combat={fn="LoggingCombat", read="IsLoggingCombat", setting="logCombat"}}
+local loggingApplied = false
+local function setLogging(kind, wanted)
+    local api = logApi[kind]
+    local fn = _G[api.fn]
+    if type(fn)~="function" then logging[kind]="unavailable"; return end
+    if not pcall(fn, wanted) then logging[kind]="error"; return end
+    local info = _G.C_ChatInfo
+    local reader = type(info)=="table" and info[api.read] or nil
+    if type(reader)=="function" then
+        local ok, value = pcall(reader)
+        if ok and not ns.Export.issecret(value) and type(value)=="boolean" then
+            logging[kind] = (value==wanted) and (wanted and "on" or "off") or ("requested, reads " .. (value and "on" or "off"))
+            return
+        end
+    end
+    logging[kind] = wanted and "requested (unverified)" or "off requested (unverified)"
+end
+local function applyLogging()
+    if loggingApplied then return end
+    loggingApplied = true
+    for kind, api in pairs(logApi) do
+        if StreonorDockDB.settings[api.setting]==true then setLogging(kind, true)
+        else logging[kind]="disabled in settings" end
+    end
+end
+local function logCommand(arg1, arg2)
+    local api = logApi[arg1]
+    if api and (arg2=="on" or arg2=="off") then
+        StreonorDockDB.settings[api.setting] = arg2=="on"
+        setLogging(arg1, arg2=="on")
+    elseif arg1~="" then
+        say("usage: /sdock log | log chat on|off | log combat on|off"); return
+    end
+    say("chat logging: " .. logging.chat .. " (setting " .. (StreonorDockDB.settings.logChat and "on" or "off") .. ")")
+    say("combat logging: " .. logging.combat .. " (setting " .. (StreonorDockDB.settings.logCombat and "on" or "off") .. ")")
+end
 function handlers.PLAYER_LOGIN()
     if not loaded then return end
+    ns.Safe("logging", applyLogging)
     ns.Safe("secure", ns.Secure.Request)
     ns.LayoutChanged()
     ns.Safe("conflicts", warnConflicts)
 end
 function handlers.PLAYER_ENTERING_WORLD()
     if not loaded then return end
+    ns.Safe("logging", applyLogging)
     ns.Safe("secure", ns.Secure.Request)
     ns.Export.EnteringWorld()
 end
@@ -318,13 +364,13 @@ local function estimates(arg)
         .. " (usage: /sdock estimates on|off|auto)")
 end
 local function help()
-    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | help")
+    say("/sdock toggle | page next|prev|home | chords | probe | cooldowns | export | estimates on|off|auto | log [chat|combat on|off] | help")
     say("Drag a spell or bag item onto a key (readouts: items only); right-click clears. Out of combat only.")
     say("Pager keys: Game Menu > Key Bindings > StreonorDock.")
 end
 SLASH_STREONORDOCK1="/sdock"
 SlashCmdList.STREONORDOCK=function(message)
-    local command, arg = string.match(string.lower(message or ""),"^%s*(%S*)%s*(%S*)")
+    local command, arg, arg2 = string.match(string.lower(message or ""),"^%s*(%S*)%s*(%S*)%s*(%S*)")
     if not loaded and command~="probe" and command~="help" and command~="" then say("not loaded yet"); return end
     if command=="probe" then ns.Safe("probe", probe)
     elseif command=="toggle" then ns.Safe("toggle", ns.Panel.Toggle)
@@ -333,6 +379,7 @@ SlashCmdList.STREONORDOCK=function(message)
     elseif command=="chords" then ns.Safe("chords", chords)
     elseif command=="estimates" then ns.Safe("estimates", estimates, arg)
     elseif command=="cooldowns" then ns.Safe("cooldowns", cooldowns)
+    elseif command=="log" then ns.Safe("log", logCommand, arg, arg2)
     elseif command=="export" then
         ns.Safe("export summary", exportSummary)
     else help() end

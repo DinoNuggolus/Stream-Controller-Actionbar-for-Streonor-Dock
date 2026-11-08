@@ -216,3 +216,19 @@ is new. Keep `/console scriptErrors 1` on. Record results in NOTES.md.
 
 ## Unverified assumptions
 See NOTES.md, "Unverified assumptions (part 2)". Every one is a reason to run the checklist.
+
+## Client chat and combat file logging
+
+On the first `PLAYER_LOGIN` / `PLAYER_ENTERING_WORLD` of a session the addon calls the client's own
+`LoggingChat(true)` and `LoggingCombat(true)` (each only if the function exists, through `pcall`, never
+assuming success; read back with `C_ChatInfo.IsLoggingChat` / `IsLoggingCombat` when those exist,
+otherwise reported as "requested (unverified)"). The client then writes `Logs\WoWChatLog.txt` /
+`WoWCombatLog.txt` for an **external** reader. The addon never reads or parses either log, registers no
+combat-log events and uses no combat-log data (the Forever rules forbid addons using it); it only flips the
+client's file-logging switches.
+
+Settings: `StreonorDockDB.settings.logChat` / `logCombat` (default `true`). A setting that is off is never
+touched at login. Commands: `/sdock log` (status), `/sdock log chat on|off`, `/sdock log combat on|off`.
+**Unverified:** how Forever honors these calls (Prat, BigWigs and Details call them). Check `/sdock log`
+and whether the log files actually grow. The companion plugin deletes these files after logout
+(see the StreonorWoW README).

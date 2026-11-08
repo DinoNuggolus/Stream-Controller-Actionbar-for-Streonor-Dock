@@ -160,3 +160,7 @@ Assumption updates (replace items 1 and 4 above):
 ## Login population (2026-11-07)
 - Host login with uncached data and with a missed *_DATA_LOAD_RESULT: panel filled via events already. Added Export.RetryMetadata 3s/8s after PLAYER_ENTERING_WORLD as a safety net (66 tests). Unverified in game.
 - SavedVariables reach disk only on /reload or logout, so the controller shows the previous save right after login.
+
+## Client logging switches (2026-11-08)
+- Init.lua applies LoggingChat/LoggingCombat once per session (guarded, pcall, read-back via C_ChatInfo when present);
+  settings logChat/logCombat default true; `/sdock log`. Tests: 68 / 3680 assertions. Forever behavior unverified in game.
