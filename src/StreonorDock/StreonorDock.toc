@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: StreonorDock
-## Notes: Streonor S15 controller dock: 15 chord keys, optional action bar, pages, icon export
+## Notes: Action bar for a Streonor S15 stream controller: 15 chord keys, pages, spells/items/macros, icon export (needs the StreonorDock Streonor plugin)
 ## Author: DinoNuggolus
-## Version: 0.3.0
+## Version: 0.4.0
 ## SavedVariables: StreonorDockDB
 ## SavedVariablesPerCharacter: StreonorDockCharDB
 ## Category: Action Bars

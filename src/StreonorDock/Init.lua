@@ -8,7 +8,7 @@ local dynamic = {}      -- event -> handler, registered at runtime (visibility c
 local frame
 local function say(message) print("StreonorDock: " .. message) end
 ns.Say = say
-ns.version = "0.3.0"
+ns.version = "0.4.0"
 
 -- Fail soft: an error in one handler is reported once per label, never spammed.
 function ns.Safe(label, fn, ...)

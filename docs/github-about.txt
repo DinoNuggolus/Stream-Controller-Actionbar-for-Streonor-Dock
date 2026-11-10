@@ -1,0 +1,7 @@
+Repository: Stream-Controller-Actionbar-for-Streonor-Dock (addon "StreonorDock")
+
+About (description):
+WoW: Forever action bar for a Streonor S15 stream controller - assign spells, items and macros to 15 fixed keys. Requires the Streonor plugin: https://github.com/DinoNuggolus/StreonorWoW
+
+Suggested topics: wow, world-of-warcraft, wow-forever, addon, actionbar, streonor, streamdock, stream-controller
+Website: https://github.com/DinoNuggolus/StreonorWoW

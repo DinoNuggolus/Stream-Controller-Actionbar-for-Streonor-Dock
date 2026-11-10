@@ -1,108 +1,115 @@
-# StreonorDock
+# Stream Controller Actionbar for Streonor Dock
 
-Original WoW: Forever addon by DinoNuggolus, MIT licensed. An optional on-screen action bar whose 15 buttons mirror
-the 15 fixed controller chords of a Streonor S15, plus the chord targets themselves, up to 10 pages per profile
-and a minimal icon export for the Streonor plugin.
+An optional on-screen action bar for **World of Warcraft: Forever** whose 15 buttons mirror the 15 keys of a
+**Streonor S15** stream controller. Assign spells, items and macros to the buttons in game; each controller key
+fires its slot with one press and shows the matching icon. (Addon folder and in-game name: **StreonorDock**.)
 
-Use the S15 in landscape. In the Streonor app, manually place Dock Key 1 at bottom-left, then Dock Key 2-5 across the
-bottom to the right. Place Dock Key 6-10 across the middle and Dock Key 11-15 across the top. Dock Key 15 is top-right.
-These action settings refer to stable slot numbers, not assumed host row/column coordinates. Keep Mirror controller
-layout ON for the same arrangement in game. Each press makes one use attempt. Reload or logout after assignment
-changes to update controller icons. The plugin never rewrites your device profile.
+> Screenshots: _(placeholder - add `docs/bar.png`, `docs/settings.png`, `docs/s15.jpg`)_
 
-Chords: slot N = `ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \` (N = 1..15). One physical press is exactly one
-use attempt (the addon acts on the key-down edge only; no hold repeat, no second attempt on release).
+## REQUIRED: the Streonor plugin
 
-## S15 key placement (landscape)
+The controller keys are driven by a small Streonor plugin. Without it the bar still works with the mouse, but the S15
+does nothing.
 
-| Row | Dock Keys, left to right |
-|---|---|
-| Top | 11 12 13 14 15 |
-| Middle | 6 7 8 9 10 |
-| Bottom | 1 2 3 4 5 |
+**Plugin repository: <https://github.com/DinoNuggolus/StreonorWoW>** - install it like this:
 
-Place them manually in the Streonor app; Dock Key N sends chord N. Mirror controller layout (Settings > Bar > Layout,
-default ON) draws the on-screen bar the same way. Single row / single column are explicit alternatives.
+1. On the plugin repo's **Releases** page download `StreonorDock-Plugin-<version>.zip` and extract it.
+2. Double-click **Install StreonorDock Plugin.bat** (no commands, no PowerShell window to type in). It asks before closing
+   Streonor and before starting it again. Windows may warn about the `.bat`: *More info > Run anyway*.
+3. Restart Streonor if it did not start by itself.
+4. Open your S15 profile and place **Dock Key 1 ... Dock Key 15** with the S15 in **landscape**:
 
-## Install
+   | Row | Keys, left to right |
+   |---|---|
+   | Top | Dock Key 11 - 12 - 13 - 14 - 15 |
+   | Middle | Dock Key 6 - 7 - 8 - 9 - 10 |
+   | Bottom | Dock Key 1 - 2 - 3 - 4 - 5 |
 
-Copy the `StreonorDock` folder (everything needed, including `Libs/`, is inside it) to
-`World of Warcraft\_forever_\Interface\AddOns\`, or run `scripts\deploy.ps1 -Name StreonorDock` from the workspace.
-Interface 16001. Restart the client if the folder does not show up, `/reload` for updates. Plugin: copy
-`io.github.dinonuggolus.streonordock.sdPlugin` to the Streonor plugins folder (`scripts\deploy-plugin.ps1`) and restart Streonor.
+   Dock Key 1 is bottom-left, Dock Key 15 is top-right. The plugin never rewrites your profile. Keep **Mirror controller
+   layout** ON (default) so the on-screen bar uses the same arrangement.
 
-## Settings overview (`/sdock settings`, Interface > AddOns, or the cog)
+## Install the addon
+
+1. Download `StreonorDock-<version>.zip` from this repo's **Releases** page and extract it.
+2. Copy the folder **StreonorDock** into `<your WoW folder>\_forever_\Interface\AddOns\` so that
+   `...\AddOns\StreonorDock\StreonorDock.toc` exists. Libraries are included.
+3. Start the game (enable StreonorDock on the AddOns screen) or `/reload`.
+
+Interface 16001 (WoW: Forever). Updating: extract over the old folder; your settings are kept.
+
+## Quick start
+
+* `/sdock` shows the commands. `/sdock settings` opens the settings window (also in Interface > AddOns).
+* The bar appears centred on first run. Drag its thin header to move it (out of combat). The header has a **padlock**
+  (assignment mode) and a **cog** (settings); it fades when the mouse is away.
+* **Assign:** click the padlock (or `/sdock assign`, or right-click the minimap button). All 15 buttons appear with a `+`.
+  Drag a spell from the spellbook, a bag item or a macro from the macro window onto a button, **or** click a button and
+  pick from **Spells** (by spellbook tab) / **Items** (usable bag items by type, with stack counts) / **Macros**
+  (General and your character's) / **Clear slot**. Drag a filled button onto another to swap; drop it outside to clear.
+  Escape or right-click cancels a drag.
+* **Lock again** to finish. If assignments, page or profile changed you get one **Reload / Cancel** prompt: Reload writes
+  the new icons for the controller (WoW saves addon data on reload/logout); Cancel closes it with no reminder.
+* **One press = one use attempt.** The addon acts on the key-down edge only; holding a key does not repeat.
+* **Right-click** anywhere on the panel opens a menu (settings, assignment mode, reload); what right-click does is
+  configurable.
+* A short tutorial runs once on the first login. **X** hides tutorial popups permanently; replay it in Settings > General.
+* Pages (1-10 per profile), a profile per character, cooldown and stack display on bar buttons (seconds, `2m`, `2h`).
+
+## Settings overview
 
 * **General:** show bar, always show buttons (off: empty slots are hidden while locked), padlock/cog, right-click
-  behavior, minimap button, tutorial replay and "hide tutorial popups".
-* **Bar:** *Layout* (mirror, row/column, columns/rows, grow, scale, size, spacing, position reset), *Appearance*
-  (Slate / Parchment-lite style, LibSharedMedia border/background/font pickers, opacity, header fade, glow style and
-  colour) and *Visibility*.
-* **Visibility:** base (faded) / visible opacity, fade in/out and delay, ANY/ALL, hide completely, and a checkbox
-  dropdown of conditions (mouseover, combat, target, hostile target, group, raid, instance, PvP, mounted, resting,
-  flying [best effort], casting, low health, modifier key). Mouseover raises opacity only when ticked.
-  Assignment mode always shows the bar fully.
-* **Buttons:** stack counts, tooltips, cooldown look and thresholds (seconds below 90 s, `2m`, `2h`), ready glow.
-* **Assignment:** pages (1-10, shrink archives), page keys. **Controller:** export switch, chord list, Reload UI.
-* **Profiles:** one profile per character by default (AceDB); copy/reset/choose. **Diagnostics / About.**
-
-## Tutorial
-
-A six-step callout tour starts once, on the first login after the addon is installed. X (or Escape) closes it and
-stores "hide tutorial popups" account-wide; addon updates never reset it. Replay: Settings > General.
-
-## Using it
-
-* The bar is ON and centred on first run. Drag the thin header to move it (out of combat). Header: padlock
-  (assignment mode) and cog (settings), each can be hidden in General. `/sdock settings` always opens settings.
-* Assign: click the padlock (or `/sdock assign`, or right-click the minimap button). All 15 buttons appear with a `+`
-  (full strength when empty, half when filled). Drag a known spell from the spellbook or a carried bag item onto a
-  button, or click a button for **Spells** (by spellbook tab) / **Items** (by game item class, with stack totals) /
-  **Clear slot**. Drag a filled button onto another to swap or move; drop it outside the bar to clear it; Escape or
-  right-click cancels a drag. Lock again to finish: if something really changed you get one **Reload / Cancel**
-  prompt; Cancel is final (no reminders). Reload writes the new icons for the controller.
-* With the bar hidden, `/sdock assign` and the minimap button reveal it temporarily and hide it again on lock.
-* Locked buttons: left-click performs one use attempt. Right-click opens the menu (or the configured action).
-* Buttons show carried stack totals (0 stays visible, dimmed), spell charges and an OmniCC-style cooldown: dimmed
-  remaining region, clockwise sweep, centred number (seconds below 90 s, `2m` from 90 s, `2h` from 90 min).
-* Everything is out-of-combat only. Changes needing protected frames wait for combat to end.
+  behaviour, minimap button, tutorial replay and "hide tutorial popups".
+* **Bar:** *Layout* (Mirror controller layout / single row / single column / columns, rows, growth, scale, size,
+  spacing, reset position), *Appearance* (Flat / Slate / Parchment-lite presets, SharedMedia border, background and
+  font pickers, opacity, header fade, glow style and colour), *Visibility* (fade by condition).
+* **Visibility:** faded and visible opacity, fade in/out and delay, ANY/ALL, hide completely, and a checkbox list of
+  conditions (mouseover, combat, target, hostile target, group, raid, instance, PvP, mounted, resting, flying
+  [best effort], casting, low health, modifier key). Mouseover raises opacity only if ticked. Assignment mode always
+  shows the bar fully.
+* **Buttons:** stack counts, tooltips, cooldown look and thresholds, ready glow, labels.
+* **Assignment:** pages, page keys. **Controller:** export switch, chord list, Reload UI. **Profiles / Diagnostics / About.**
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `/sdock settings` | Settings window (also Interface > AddOns > StreonorDock) |
-| `/sdock assign` | Toggle assignment mode |
+| `/sdock settings` | Settings window |
+| `/sdock assign` | Toggle assignment mode (works with the bar hidden: it shows the bar temporarily) |
 | `/sdock toggle` | Show/hide the bar |
 | `/sdock reset position` | Centre the bar |
 | `/sdock page next\|prev\|home\|<n>` | Paging (out of combat) |
-| `/sdock chords` | Each chord, its slot, ordinary binding, effective mapping, conflicts |
-| `/sdock probe` | Capability presence (menu, settings, popup, spellbook, cooldown APIs), secure state |
-| `/sdock spellprobe` | Dumps spellbook skill lines and bag classes (debug; saved to `StreonorDockDB.global.spellProbe`) |
+| `/sdock chords` | Each chord, its slot, bindings and conflicts |
+| `/sdock probe`, `spellprobe`, `macroprobe` | Capability / debug dumps |
 | `/sdock clicks [reset]` | Per-slot input edge counters (routing evidence only) |
-| `/sdock export` | Summary of the in-memory icon export |
+| `/sdock export` | Summary of the controller icon export |
+| `/sdock bar` | Which bar buttons are shown (debug) |
 
-## Controller export
+## Troubleshooting
 
-`StreonorDockDB.export = {schemaVersion=2, enabled, profileId, page, icons[1..15]}`; each icon is `{}` (empty),
-`{iconFileID=n}` or `{unresolved=true}`. No action IDs, counts, timers or telemetry. WoW writes it on reload/logout.
+* **Controller keys are black / do nothing:** install the plugin (above), restart Streonor, place the Dock Keys, make sure
+  the addon is enabled, and `/reload` once. `/sdock export` should report resolved icons.
+* **Keys show a question mark:** the plugin has no icon file for that spell (see the plugin README, *Icons*).
+* **"Running scripts is disabled" (execution policy):** use the plugin's `.bat` installer; it starts PowerShell with the
+  right switch itself, so you never type a command.
+* **A chord also triggers another action:** `/sdock chords` marks conflicts; the addon's bindings take precedence while loaded.
+* **Nothing happens in combat after login:** the addon sets up its protected buttons after combat ends.
+* **Menu looks wrong:** `/sdock probe` and Settings > Diagnostics show which menu system the client provides.
 
-## Data
+## How it works (short)
 
-AceDB-3.0 with one profile per character by default (`StreonorDockDB`; `StreonorDockCharDB` only keeps the
-sanitized rollback archive of the pre-0.3 data). Removed in 0.3: LCD readouts, money/currency, client logging
-switches, press-started timers and estimates, learned cooldown durations, count/status export.
+15 fixed chords (`ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \`) are bound to 15 secure buttons that exist even when
+the bar is hidden. The bar's buttons are separate secure targets with the same actions. The addon writes
+`StreonorDockDB.export` (icons only: no action IDs, counts or timers) which the plugin reads. Data uses AceDB with a
+profile per character; the addon never reads the combat log.
 
-## Libraries
+## Development
 
-Embedded in `Libs/` (see `Libs/LIBRARIES.md`): LibStub, CallbackHandler, AceDB, AceDBOptions, AceGUI, AceConfig,
-LibSharedMedia, AceGUI-SharedMediaWidgets, LibDataBroker, LibDBIcon, LibCustomGlow, LibUIDropDownMenu (fallback).
+`lua tests/run.lua` from this folder (Lua 5.1; fake WoW host, real AceDB/AceConfigRegistry). Build a release zip:
+`powershell -File scripts\build-release.ps1` (output in git-ignored `dist\`). See `NOTES.md` for the in-game test checklist.
 
-## Tests
+## Credits and licenses
 
-`lua tests/run.lua` from this folder (Lua 5.1; fake WoW host, real AceDB/AceConfigRegistry). Host tests prove
-lifecycle and secure-call discipline only; they cannot prove client behavior. See NOTES.md for the in-game checklist.
-
-## License
-
-MIT (addon code). Embedded libraries keep their own licenses.
+Addon code: MIT, see `LICENSE`. Embedded libraries (unchanged, each with its own license; see
+`src/StreonorDock/Libs/LIBRARIES.md`): LibStub, CallbackHandler-1.0, AceDB-3.0, AceDBOptions-3.0, AceGUI-3.0,
+AceConfig-3.0 (Ace3, BSD), LibSharedMedia-3.0 (LGPL), AceGUI-3.0-SharedMediaWidgets, LibDataBroker-1.1, LibDBIcon-1.0,
+LibCustomGlow-1.0 (MIT) and LibUIDropDownMenu-4.0. No Blizzard artwork is included.
