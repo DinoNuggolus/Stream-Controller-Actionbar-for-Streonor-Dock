@@ -101,6 +101,9 @@ A.test("minimal export: icons only, empty/resolved/unresolved, disabled blanks",
     A.equal(e.schemaVersion, 2); A.equal(e.enabled, true); A.equal(e.profileId, "abc"); A.equal(e.page, 2)
     A.deep(e.icons[1], {iconFileID=111}); A.deep(e.icons[2], {unresolved=true}); A.deep(e.icons[3], {})
     A.deep(e.icons[15], {iconFileID=222}); A.equal(#e.icons, 15)
+    local named = Core.buildExport(true, "abc", 1, slots, iconFor, function(s) return ({[5]="  Fire\nball  ", [6]=string.rep("x", 60)})[s.id] end)
+    A.deep(named.icons[1], {iconFileID=111, name="Fire ball"}); A.equal(#named.icons[2].name, 40); A.equal(named.icons[2].unresolved, true)
+    A.deep(named.icons[3], {}, "empty slots never carry a name")
     local off = Core.buildExport(false, "abc", 1, slots, iconFor)
     A.equal(off.enabled, false); for i=1,15 do A.deep(off.icons[i], {}) end
     local bad = Core.buildExport(true, 7, 99, nil, nil); A.equal(bad.profileId, "uninitialized"); A.equal(bad.page, 1)

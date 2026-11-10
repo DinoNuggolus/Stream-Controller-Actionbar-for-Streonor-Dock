@@ -1,6 +1,6 @@
 local addonName, ns = ...
 -- Minimal controller export (schema 2): StreonorDockDB.export = {schemaVersion=2, enabled, profileId,
--- page, icons[1..15]}. Icons only: no action IDs, counts, timers, revisions or telemetry. It reaches
+-- page, icons[1..15]}. Icons and a short display name only: no action IDs, counts, timers, revisions or telemetry. It reaches
 -- disk only when WoW writes SavedVariables (reload/logout/exit), which is the sync boundary.
 local Export = {}
 ns.Export = Export
@@ -16,7 +16,7 @@ function Export.Refresh()
     if teardown or not ns.profile or type(StreonorDockDB) ~= "table" then return false end
     local enabled = ns.db.global.exportEnabled ~= false
     StreonorDockDB.export = ns.Core.buildExport(enabled, ns.profile.id, ns.char.currentPage,
-        ns.CurrentPage(), ns.Game.SlotIcon)
+        ns.CurrentPage(), ns.Game.SlotIcon, ns.Game.SlotName)
     return true
 end
 -- Coalesce bursts of changes into one rebuild a second later.

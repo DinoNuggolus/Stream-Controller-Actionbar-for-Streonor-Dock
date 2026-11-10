@@ -103,7 +103,7 @@ A.test("reload popup: only when something changed, exactly Reload/Cancel, no rem
     h.ns.Assign.Unlock(); h.ns.Edit(2, {kind = "item", id = 9}); h.ns.Assign.Lock(); A.equal(#h.popups, 2)
     h.combat = true; dialog.OnAccept(); A.equal(h.reloaded, nil, "never reloads in combat"); h.combat = false
     dialog.OnAccept(); A.equal(h.reloaded, 1)
-    A.deep(h.env.StreonorDockDB.export.icons[2], {iconFileID = 501}, "export regenerated before the reload")
+    A.deep(h.env.StreonorDockDB.export.icons[2], {iconFileID = 501, name = "Bandage"}, "export regenerated before the reload")
 end)
 A.test("page changes during assignment count; appearance-only edits do not", function()
     local h = host(); h.login()

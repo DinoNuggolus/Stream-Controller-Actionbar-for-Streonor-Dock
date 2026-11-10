@@ -4,6 +4,8 @@ An optional on-screen action bar for **World of Warcraft: Forever** whose 15 but
 **Streonor S15** stream controller. Assign spells, items and macros to the buttons in game; each controller key
 fires its slot with one press and shows the matching icon. (Addon folder and in-game name: **StreonorDock**.)
 
+**New here? Follow the complete step-by-step guide (no commands to type): <https://github.com/DinoNuggolus/StreonorWoW/blob/main/docs/INSTALL.md>**
+
 > Screenshots: _(placeholder - add `docs/bar.png`, `docs/settings.png`, `docs/s15.jpg`)_
 
 ## REQUIRED: the Streonor plugin
@@ -16,8 +18,11 @@ does nothing.
 1. On the plugin repo's **Releases** page download `StreonorDock-Plugin-<version>.zip` and extract it.
 2. Double-click **Install StreonorDock Plugin.bat** (no commands, no PowerShell window to type in). It asks before closing
    Streonor and before starting it again. Windows may warn about the `.bat`: *More info > Run anyway*.
-3. Restart Streonor if it did not start by itself.
-4. Open your S15 profile and place **Dock Key 1 ... Dock Key 15** with the S15 in **landscape**:
+3. Optional but recommended: double-click **Build Icon Library.bat** from the same folder. It asks first, then downloads the
+   community icon pack (about 1.7 GB) to your PC and builds the key images. **Without it the keys show the spell/item name on a
+   coloured tile instead of its icon.**
+4. Restart Streonor if it did not start by itself.
+5. Open your S15 profile and place **Dock Key 1 ... Dock Key 15** with the S15 in **landscape**:
 
    | Row | Keys, left to right |
    |---|---|
@@ -88,7 +93,8 @@ Interface 16001 (WoW: Forever). Updating: extract over the old folder; your sett
 
 * **Controller keys are black / do nothing:** install the plugin (above), restart Streonor, place the Dock Keys, make sure
   the addon is enabled, and `/reload` once. `/sdock export` should report resolved icons.
-* **Keys show a question mark:** the plugin has no icon file for that spell (see the plugin README, *Icons*).
+* **Keys show a name on a coloured tile:** the icon library is missing - run *Build Icon Library.bat* (plugin README, *Icons*).
+* **Keys show a question mark:** reload once so the addon can export the name/icon.
 * **"Running scripts is disabled" (execution policy):** use the plugin's `.bat` installer; it starts PowerShell with the
   right switch itself, so you never type a command.
 * **A chord also triggers another action:** `/sdock chords` marks conflicts; the addon's bindings take precedence while loaded.
@@ -99,7 +105,7 @@ Interface 16001 (WoW: Forever). Updating: extract over the old folder; your sett
 
 15 fixed chords (`ALT-CTRL-SHIFT-` + `1 2 3 4 5 6 7 8 9 0 - = [ ] \`) are bound to 15 secure buttons that exist even when
 the bar is hidden. The bar's buttons are separate secure targets with the same actions. The addon writes
-`StreonorDockDB.export` (icons only: no action IDs, counts or timers) which the plugin reads. Data uses AceDB with a
+`StreonorDockDB.export` (icons and a short name per slot only: no action IDs, counts or timers) which the plugin reads. Data uses AceDB with a
 profile per character; the addon never reads the combat log.
 
 ## Development

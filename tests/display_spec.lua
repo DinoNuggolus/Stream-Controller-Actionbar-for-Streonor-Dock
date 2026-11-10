@@ -147,5 +147,5 @@ A.test("icon-only controller export is untouched by display data", function()
     h.items[8].cd = {900, 200, true}; h.items[8].count = 0; h.time = 1000; h.ns.Display.Refresh(); h.runTimers()
     h.ns.Export.Refresh()
     local e = h.env.StreonorDockDB.export
-    A.deep(e.icons[1], {iconFileID = 500}); A.equal(e.count, nil); A.equal(e.cooldown, nil)
+    A.deep(e.icons[1], {iconFileID = 500, name = "Water"}); A.equal(e.count, nil); A.equal(e.cooldown, nil)
 end)

@@ -89,6 +89,13 @@ function Game.SlotIcon(slot)
     if slot.kind=="spell" then local _, icon = Game.SpellMeta(slot.id); return icon end
     if slot.kind=="item" then local _, icon = Game.ItemMeta(slot.id); return icon end
 end
+-- Display name for a stored slot (plain string or nil).
+function Game.SlotName(slot)
+    if type(slot)~="table" then return nil end
+    if slot.kind=="macro" then return slot.name end
+    if slot.kind=="spell" then return (Game.SpellMeta(slot.id)) end
+    if slot.kind=="item" then return (Game.ItemMeta(slot.id)) end
+end
 -- Spellbook fallback when GetCursorInfo gives no spell ID:
 -- C_SpellBook.GetSpellBookItemType(slot, bank) -> itemType, actionID; spells only.
 function Game.ResolveSpellbookSpell(slot, bookType)

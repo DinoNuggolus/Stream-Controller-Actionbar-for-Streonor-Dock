@@ -192,8 +192,9 @@ A.test("export is minimal, icons only, regenerated on edit and page change", fun
     h.runTimers()
     local e = h.env.StreonorDockDB.export
     A.equal(e.schemaVersion, 2); A.equal(e.enabled, true); A.equal(e.profileId, h.ns.profile.id); A.equal(e.page, 1)
-    A.deep(e.icons[1], {iconFileID=111}); A.deep(e.icons[2], {iconFileID=500}); A.deep(e.icons[3], {unresolved=true}); A.deep(e.icons[4], {})
+    A.deep(e.icons[1], {iconFileID=111, name="Rejuv"}); A.deep(e.icons[2], {iconFileID=500, name="Water"}); A.deep(e.icons[3], {unresolved=true}); A.deep(e.icons[4], {})
     for k in pairs(e) do A.equal(({schemaVersion=1, enabled=1, profileId=1, page=1, icons=1})[k], 1, "unexpected export key " .. k) end
+    for n=1,15 do for k in pairs(e.icons[n]) do A.equal(({iconFileID=1, unresolved=1, name=1})[k], 1, "unexpected icon key " .. k) end end
     h.ns.db.global.exportEnabled = false; h.ns.Export.Refresh()
     e = h.env.StreonorDockDB.export; A.equal(e.enabled, false); for i=1,15 do A.deep(e.icons[i], {}) end
     A.equal(h.button(1).attrs["*type1"], "spell", "disabled export blanks keys but not chords")
@@ -210,7 +211,7 @@ A.test("late icon metadata refreshes the export; unrequested loads are ignored",
     h.event("SPELL_DATA_LOAD_RESULT", 999, true)   -- not ours
     h.spells[55] = {name="Late", icon=777, cached=true}
     h.event("SPELL_DATA_LOAD_RESULT", 55, true); h.runTimers()
-    A.deep(h.env.StreonorDockDB.export.icons[1], {iconFileID=777})
+    A.deep(h.env.StreonorDockDB.export.icons[1], {iconFileID=777, name="Late"})
     -- slot reassigned before the callback: nothing to refresh, no error
     h.ns.Edit(1, {kind="empty"}); h.event("SPELL_DATA_LOAD_RESULT", 55, true)
     A.equal(h.internalErrors, 0)

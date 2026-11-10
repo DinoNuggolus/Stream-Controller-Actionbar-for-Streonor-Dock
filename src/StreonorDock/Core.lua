@@ -217,8 +217,9 @@ function Core.secureAttributes(value, spellName, macroIndex)
 end
 
 -- Minimal controller export (schema 2): icons only. iconFor(slot) -> positive integer | nil.
--- Empty -> {}; assigned and resolved -> {iconFileID=n}; assigned but unknown -> {unresolved=true}.
-function Core.buildExport(enabled, profileId, page, slots, iconFor)
+-- Empty -> {}; assigned and resolved -> {iconFileID=n}; assigned but unknown -> {unresolved=true}; an assigned
+-- slot also carries name="..." (<= 40 chars) when known. Nothing else is ever exported.
+function Core.buildExport(enabled, profileId, page, slots, iconFor, nameFor)
     local icons = {}
     for i=1,15 do
         local slot = type(slots)=="table" and slots[i] or nil
@@ -226,6 +227,13 @@ function Core.buildExport(enabled, profileId, page, slots, iconFor)
         if enabled and type(slot)=="table" and (slot.kind=="spell" or slot.kind=="item" or slot.kind=="macro") then
             local icon = iconFor and iconFor(slot)
             if id(icon) then entry.iconFileID = icon else entry.unresolved = true end
+            -- Short display name: lets the controller draw a readable tile while it has no icon file.
+            local name = nameFor and nameFor(slot)
+            if type(name)=="string" then
+                name = string.gsub(name, "%c", " ")
+                name = string.gsub(string.gsub(string.gsub(name, "%s+", " "), "^ ", ""), " $", "")
+                if name~="" then entry.name = string.sub(name, 1, 40) end
+            end
         end
         icons[i] = entry
     end
