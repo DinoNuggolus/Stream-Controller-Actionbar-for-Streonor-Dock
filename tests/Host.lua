@@ -224,6 +224,18 @@ function ns.host(options)
     env.IsShiftKeyDown = function() return st("shift", false) end
     env.IsControlKeyDown = function() return st("ctrl", false) end
     env.IsAltKeyDown = function() return st("alt", false) end
+    h.macros = {account = {}, char = {}}; h.macroSpell = {}; h.macroItem = {}
+    env.MAX_ACCOUNT_MACROS, env.MAX_CHARACTER_MACROS = 120, 18
+    env.GetNumMacros = function() return #h.macros.account, #h.macros.char end
+    env.GetMacroInfo = function(i)
+        local m
+        local base = env.MAX_ACCOUNT_MACROS
+        if i >= 1 and i <= base then m = h.macros.account[i] elseif i > base then m = h.macros.char[i - base] end
+        if m then return m.name, m.icon, m.body or "" end
+    end
+    env.GetMacroSpell = function(i) return h.macroSpell[i] end
+    env.GetMacroItem = function(i) return h.macroItem[i] end
+    env.UnitName = function() return options.name or "Tester" end
     env.securecallfunction = function(fn, ...) return fn(...) end
     env.ReloadUI = function() h.reloaded = (h.reloaded or 0) + 1 end
     env.StaticPopupDialogs = {}

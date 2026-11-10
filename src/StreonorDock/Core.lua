@@ -16,6 +16,12 @@ function Core.slot(value)
     if type(value)~="table" then return nil end
     if value.kind=="empty" then return {kind="empty"} end
     if value.kind=="item" and id(value.id) then return {kind="item", id=value.id} end
+    -- Macros are stored by NAME + scope (indices shift when macros are created or deleted); the index is
+    -- resolved at apply time from the client's macro list.
+    if value.kind=="macro" and type(value.name)=="string" and value.name~="" and #value.name<=64
+        and (value.scope=="account" or value.scope=="character") then
+        return {kind="macro", name=value.name, scope=value.scope}
+    end
     if value.kind=="spell" and id(value.id) then
         -- pinned=true: cast this exact rank by ID; otherwise cast by name (highest known rank).
         if value.pinned==true then return {kind="spell", id=value.id, pinned=true} end
@@ -53,6 +59,7 @@ function Core.sameSlot(a, b)
     if type(a)~="table" or type(b)~="table" then return false end
     if a.kind~=b.kind then return false end
     if a.kind=="empty" then return true end
+    if a.kind=="macro" then return a.name==b.name and a.scope==b.scope end
     return a.id==b.id and (a.pinned==true)==(b.pinned==true)
 end
 function Core.chord(index)
@@ -165,6 +172,10 @@ function Core.normalizeCursor(cursor, issecret)
             if id(parsed) then return {kind="item",id=parsed} end
         end
         return nil,"item-id"
+    elseif kind=="macro" then
+        local index = plain(cursor[2])
+        if id(index) then return {kind="macro",index=index} end
+        return nil,"macro-index"
     elseif kind=="spell" then
         local spellID = plain(cursor[4])
         if id(spellID) then return {kind="spell",id=spellID} end
@@ -177,6 +188,7 @@ end
 function Core.identity(value)
     if type(value)~="table" then return nil end
     if (value.kind=="spell" or value.kind=="item") and id(value.id) then return value.kind .. ":" .. value.id end
+    if value.kind=="macro" and type(value.name)=="string" then return "macro:" .. tostring(value.scope) .. ":" .. value.name end
 end
 -- Slots on a page whose identity is kind:id (late metadata callbacks refresh only these).
 function Core.findSlots(page, kind, itemID)
@@ -189,16 +201,19 @@ end
 -- modifiers (the ALT-CTRL-SHIFT chord itself) cannot change the attribute lookup, and the binding
 -- click is LeftButton. false = clear the attribute (never leave stale ones).
 -- spellName must already be a plain, non-secret string or nil.
-Core.SECURE_KEYS = {"*type1","*spell1","*item1"}
-function Core.secureAttributes(value, spellName)
+Core.SECURE_KEYS = {"*type1","*spell1","*item1","*macro1"}
+function Core.secureAttributes(value, spellName, macroIndex)
     if type(value)=="table" and value.kind=="spell" and id(value.id) then
         local spell = value.id
         if not value.pinned and type(spellName)=="string" and spellName~="" then spell=spellName end
-        return {["*type1"]="spell",["*spell1"]=spell,["*item1"]=false}
+        return {["*type1"]="spell",["*spell1"]=spell,["*item1"]=false,["*macro1"]=false}
     elseif type(value)=="table" and value.kind=="item" and id(value.id) then
-        return {["*type1"]="item",["*spell1"]=false,["*item1"]="item:" .. value.id}
+        return {["*type1"]="item",["*spell1"]=false,["*item1"]="item:" .. value.id,["*macro1"]=false}
+    elseif type(value)=="table" and value.kind=="macro" and id(macroIndex) then
+        -- A macro that cannot be resolved right now stays inert (shown as missing), never an error.
+        return {["*type1"]="macro",["*spell1"]=false,["*item1"]=false,["*macro1"]=macroIndex}
     end
-    return {["*type1"]=false,["*spell1"]=false,["*item1"]=false}
+    return {["*type1"]=false,["*spell1"]=false,["*item1"]=false,["*macro1"]=false}
 end
 
 -- Minimal controller export (schema 2): icons only. iconFor(slot) -> positive integer | nil.
@@ -208,7 +223,7 @@ function Core.buildExport(enabled, profileId, page, slots, iconFor)
     for i=1,15 do
         local slot = type(slots)=="table" and slots[i] or nil
         local entry = {}
-        if enabled and type(slot)=="table" and (slot.kind=="spell" or slot.kind=="item") then
+        if enabled and type(slot)=="table" and (slot.kind=="spell" or slot.kind=="item" or slot.kind=="macro") then
             local icon = iconFor and iconFor(slot)
             if id(icon) then entry.iconFileID = icon else entry.unresolved = true end
         end

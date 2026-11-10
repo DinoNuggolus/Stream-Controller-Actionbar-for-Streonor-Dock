@@ -383,9 +383,14 @@ function Bar.Tooltip(button)
     local shown = false
     if slot.kind == "spell" and has(GameTooltip, "SetSpellByID") then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, slot.id)
     elseif slot.kind == "item" and has(GameTooltip, "SetItemByID") then shown = pcall(GameTooltip.SetItemByID, GameTooltip, slot.id) end
+    if slot.kind == "macro" then
+        GameTooltip:SetText(slot.name); GameTooltip:AddLine("Macro", 0.7, 0.7, 0.7)
+        if button.macroMissing then GameTooltip:AddLine("Missing: no macro with this name exists any more.", 1, 0.4, 0.3, true) end
+        shown = true
+    end
     if not shown then GameTooltip:SetText((slot.kind == "spell" and "Spell " or "Item ") .. slot.id) end
     if button.cdUnavailable then GameTooltip:AddLine("Cooldown unavailable", 0.8, 0.8, 0.8) end
-    if not button.streonorKind then GameTooltip:AddLine("Not usable yet: the spell is not known or the item is not available.", 1, 0.5, 0.3, true) end
+    if not button.streonorKind and slot.kind ~= "macro" then GameTooltip:AddLine("Not usable yet: the spell is not known or the item is not available.", 1, 0.5, 0.3, true) end
     GameTooltip:Show()
 end
 

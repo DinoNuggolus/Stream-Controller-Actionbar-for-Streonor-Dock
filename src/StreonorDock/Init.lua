@@ -189,6 +189,11 @@ function handlers.CVAR_UPDATE(_, cvar)
     if not loaded or ns.Game.issecret(cvar) then return end
     if cvar=="ActionButtonUseKeyDown" or cvar=="ACTION_BUTTON_USE_KEY_DOWN" then ns.Safe("secure", ns.Secure.Request) end
 end
+-- Macro indices shift when macros are created or deleted: re-resolve names to indices (queued in combat).
+function handlers.UPDATE_MACROS()
+    if not loaded then return end
+    ns.LayoutChanged()
+end
 function handlers.SPELLS_CHANGED()
     if not loaded then return end
     if ns.Assign then ns.Safe("assign spells", ns.Assign.SpellsChanged) end
@@ -277,6 +282,7 @@ local function probe()
 end
 local function describe(value)
     if not value or value.kind=="empty" then return "empty" end
+    if value.kind=="macro" then return "macro '" .. value.name .. "' (" .. value.scope .. ")" .. (ns.Game.MacroIndex(value.name, value.scope) and "" or " MISSING") end
     local name
     if value.kind=="spell" then name = ns.Game.SpellMeta(value.id) else name = ns.Game.ItemMeta(value.id) end
     return value.kind .. " " .. value.id .. (value.pinned and " (rank pinned)" or "") .. (name and (" " .. name) or "")
@@ -346,6 +352,7 @@ SlashCmdList.STREONORDOCK=function(message)
         local shown = {}
         for n=1,15 do local b = ns.Bar and ns.Bar.buttons[n]; shown[#shown+1] = n .. (b and (b:IsShown() and "=shown" or "=hidden") or "=none") end
         say("alwaysShowButtons=" .. tostring(ns.profile.general.alwaysShowButtons) .. " assigning=" .. tostring(ns.Assign.IsActive()) .. " " .. table.concat(shown, " "))
+    elseif command=="macroprobe" then ns.Safe("macroprobe", ns.Catalog.MacroProbe)
     elseif command=="export" then ns.Safe("export summary", exportReport)
     else help() end
     return arg2

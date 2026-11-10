@@ -52,8 +52,12 @@ local function chordList()
         local slot = page[i]
         local what = "empty"
         if slot.kind ~= "empty" then
-            local name = slot.kind == "spell" and ns.Game.SpellMeta(slot.id) or ns.Game.ItemMeta(slot.id)
-            what = slot.kind .. " " .. slot.id .. (name and (" - " .. name) or "")
+            if slot.kind == "macro" then
+                what = "macro " .. slot.name .. (ns.Game.MacroIndex(slot.name, slot.scope) and "" or " (missing)")
+            else
+                local name = slot.kind == "spell" and ns.Game.SpellMeta(slot.id) or ns.Game.ItemMeta(slot.id)
+                what = slot.kind .. " " .. slot.id .. (name and (" - " .. name) or "")
+            end
         end
         lines[#lines + 1] = string.format("%2d   %-18s   %s", i, Core.chord(i), what)
     end

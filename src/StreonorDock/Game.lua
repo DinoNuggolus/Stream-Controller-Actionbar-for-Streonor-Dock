@@ -81,6 +81,11 @@ end
 -- Icon (positive integer or nil) for a stored slot.
 function Game.SlotIcon(slot)
     if type(slot)~="table" then return nil end
+    if slot.kind=="macro" then
+        local index = Game.MacroIndex(slot.name, slot.scope)
+        if index then local _, icon = Game.MacroInfo(index); return icon end
+        return nil
+    end
     if slot.kind=="spell" then local _, icon = Game.SpellMeta(slot.id); return icon end
     if slot.kind=="item" then local _, icon = Game.ItemMeta(slot.id); return icon end
 end
@@ -225,3 +230,81 @@ function Game.ItemUsable(itemID)
     return nil
 end
 function Game.ForgetUsable() usableCache = {} end
+
+-- ------------------------------------------------------------------ macros
+-- Account macros are indices 1..numAccount; character macros follow from MAX_ACCOUNT_MACROS + 1 (the
+-- client's own constant; 120 is assumed only when the constant is missing, see /sdock macroprobe).
+function Game.MacroBase()
+    local base = plain(_G.MAX_ACCOUNT_MACROS)
+    if type(base) == "number" and base == base and base > 0 then return base, true end
+    return 120, false
+end
+function Game.MacroCounts()
+    if type(_G.GetNumMacros) ~= "function" then return 0, 0 end
+    local ok, a, c = pcall(_G.GetNumMacros)
+    if not ok then return 0, 0 end
+    return finite(a) or 0, finite(c) or 0
+end
+-- name, icon (icon: file ID or texture path), both plain or nil.
+function Game.MacroInfo(index)
+    index = positiveInteger(index)
+    if not index or type(_G.GetMacroInfo) ~= "function" then return nil end
+    local ok, name, icon = pcall(_G.GetMacroInfo, index)
+    if not ok then return nil end
+    name, icon = plain(name), plain(icon)
+    if type(name) ~= "string" or name == "" then return nil end
+    if type(icon) ~= "number" and type(icon) ~= "string" then icon = nil end
+    return name, icon
+end
+function Game.MacroList(scope)
+    local numAccount, numChar = Game.MacroCounts()
+    local base = Game.MacroBase()
+    local first, last
+    if scope == "account" then first, last = 1, numAccount else first, last = base + 1, base + numChar end
+    local list = {}
+    for index = first, last do
+        local name, icon = Game.MacroInfo(index)
+        if name then list[#list + 1] = {index = index, name = name, icon = icon, scope = scope} end
+    end
+    return list
+end
+-- Current index of a stored macro, or nil when it is missing. Names are unique per scope in practice;
+-- the first match wins.
+function Game.MacroIndex(name, scope)
+    if type(name) ~= "string" then return nil end
+    for _, m in ipairs(Game.MacroList(scope == "account" and "account" or "character")) do
+        if m.name == name then return m.index end
+    end
+end
+function Game.MacroByIndex(index)
+    index = positiveInteger(index)
+    if not index then return nil end
+    local name = Game.MacroInfo(index)
+    if not name then return nil end
+    return name, index <= Game.MacroBase() and "account" or "character"
+end
+-- spellID / itemID the macro would use (for the bar's cooldown), when the client can tell.
+function Game.MacroTarget(index)
+    index = positiveInteger(index)
+    if not index then return nil end
+    if type(_G.GetMacroSpell) == "function" then
+        local ok, spell = pcall(_G.GetMacroSpell, index)
+        spell = ok and plain(spell) or nil
+        if positiveInteger(spell) then return "spell", spell end
+    end
+    if type(_G.GetMacroItem) == "function" then
+        local ok, item = pcall(_G.GetMacroItem, index)
+        item = ok and plain(item) or nil
+        if type(item) == "string" then
+            local itemID = tonumber(string.match(item, "item:(%d+)") or "")
+            if positiveInteger(itemID) then return "item", itemID end
+        elseif positiveInteger(item) then return "item", item end
+    end
+end
+function Game.PlayerName()
+    if type(_G.UnitName) ~= "function" then return "Character" end
+    local ok, name = pcall(_G.UnitName, "player")
+    name = ok and plain(name) or nil
+    if type(name) == "string" and name ~= "" then return name end
+    return "Character"
+end

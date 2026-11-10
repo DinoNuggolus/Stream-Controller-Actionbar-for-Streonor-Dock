@@ -86,7 +86,9 @@ function Secure.WriteSlot(button, slot)
     if type(slot)=="table" and slot.kind=="spell" and not slot.pinned then
         name = plainString((ns.Game.SpellMeta(slot.id)))
     end
-    local plan = ns.Core.secureAttributes(slot, name)
+    local macroIndex
+    if type(slot)=="table" and slot.kind=="macro" then macroIndex = ns.Game.MacroIndex(slot.name, slot.scope) end
+    local plan = ns.Core.secureAttributes(slot, name, macroIndex)
     local last = button.streonorApplied or {}
     local changed = false
     for _, key in ipairs(ns.Core.SECURE_KEYS) do

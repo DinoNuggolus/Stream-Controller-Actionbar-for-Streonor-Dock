@@ -146,8 +146,8 @@ A.test("cursor drop: spell and item accepted, low rank pinned, rejected payloads
     h.ns.Assign.OnDrop(3); A.deep(h.ns.CurrentPage()[3], {kind = "spell", id = 773, pinned = true})
     h.cursor = {"item", 8}
     h.ns.Assign.OnDrop(4); A.deep(h.ns.CurrentPage()[4], {kind = "item", id = 8})
-    h.cursor = {"macro", 1}
-    A.equal(h.ns.Assign.OnDrop(5), false); A.equal(h.cursor[1], "macro", "unsupported payload stays intact")
+    h.cursor = {"petaction", 1}
+    A.equal(h.ns.Assign.OnDrop(5), false); A.equal(h.cursor[1], "petaction", "unsupported payload stays intact")
     A.deep(h.ns.CurrentPage()[5], {kind = "empty"})
     h.combat = true; h.cursor = {"item", 8}; A.equal(h.ns.Assign.OnDrop(5), false); A.equal(h.cursor[1], "item"); h.combat = false
     h.ns.Assign.Lock(); h.cursor = {"item", 8}; A.equal(h.ns.Assign.OnDrop(5), false, "ignored when not assigning")
@@ -182,8 +182,8 @@ A.test("click opens Spells / Items / Clear slot; spell tabs by skill line, ranks
     local cap = menuCapture(h)
     h.ns.Assign.OnSlotClick(2, "LeftButton", h.ns.Bar.buttons[2].overlay)
     local e = cap.entries
-    A.equal(e[1].text, "Spells"); A.equal(e[2].text, "Items"); A.equal(e[3].divider, true); A.equal(e[4].text, "Clear slot")
-    A.equal(e[4].disabled, true, "nothing to clear")
+    A.equal(e[1].text, "Spells"); A.equal(e[2].text, "Items"); A.equal(e[3].text, "Macros"); A.equal(e[4].divider, true); A.equal(e[5].text, "Clear slot")
+    A.equal(e[5].disabled, true, "nothing to clear")
     local tabs = e[1].submenu
     A.equal(#tabs, 2, "empty Balance tab has no entry; General and Restoration remain")
     A.equal(tabs[1].text, "General"); A.equal(#tabs[1].submenu, 1, "passive excluded"); A.equal(tabs[1].submenu[1].text, "Attack")
@@ -196,8 +196,8 @@ A.test("click opens Spells / Items / Clear slot; spell tabs by skill line, ranks
     cap.entries[1].submenu[2].submenu[3].func()
     A.deep(h.ns.CurrentPage()[2], {kind = "spell", id = 773, pinned = true}, "explicit lower rank is pinned")
     cap.entries = nil; h.ns.Assign.OnSlotClick(2, "LeftButton", h.ns.Bar.buttons[2].overlay)
-    A.equal(cap.entries[4].disabled, false)
-    cap.entries[4].func(); A.deep(h.ns.CurrentPage()[2], {kind = "empty"})
+    A.equal(cap.entries[5].disabled, false)
+    cap.entries[5].func(); A.deep(h.ns.CurrentPage()[2], {kind = "empty"})
 end)
 A.test("items: only items with a use effect, grouped by game class, stack totals, empty categories gone", function()
     local h = started(); h.ns.Assign.Unlock()

@@ -28,7 +28,7 @@ function Assign.Snapshot()
     for page = 1, p.pageCount do
         for i = 1, 15 do
             local s = p.pages[page][i]
-            parts[#parts + 1] = s.kind == "empty" and "-" or (s.kind .. s.id .. (s.pinned and "p" or ""))
+            parts[#parts + 1] = s.kind == "empty" and "-" or (s.kind == "macro" and ("m" .. s.scope .. s.name) or (s.kind .. s.id .. (s.pinned and "p" or "")))
         end
     end
     return table.concat(parts, ",")
@@ -136,6 +136,12 @@ function Assign.OnDrop(index)
     if cursor[1] == "spell" then cursor.resolved = ns.Game.ResolveSpellbookSpell(cursor[2], cursor[3]) end
     local value, reason = Core.normalizeCursor(cursor, ns.Game.issecret)
     if not value then ns.Say("that cannot be placed here (" .. tostring(reason) .. ")"); return false end
+    if value.kind == "macro" then
+        -- GetCursorInfo gives the macro INDEX; store the name + scope so later index shifts do not matter.
+        local name, scope = ns.Game.MacroByIndex(value.index)
+        if not name then ns.Say("that macro could not be read"); return false end
+        value = {kind = "macro", name = name, scope = scope}
+    end
     if value.kind == "spell" and ns.Game.IsLowRank(value.id) then value.pinned = true end
     local accepted = ns.Edit(index, value)
     if accepted and type(ClearCursor) == "function" then ClearCursor() end
@@ -183,6 +189,7 @@ function Assign.OnEnter(index, owner)
         local shown = false
         if slot.kind == "spell" and GameTooltip.SetSpellByID then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, slot.id)
         elseif slot.kind == "item" and GameTooltip.SetItemByID then shown = pcall(GameTooltip.SetItemByID, GameTooltip, slot.id) end
+        if slot.kind == "macro" then GameTooltip:SetText(slot.name); shown = true end
         if not shown then GameTooltip:SetText(slot.kind .. " " .. slot.id) end
         GameTooltip:AddLine("Click: change. Drag: move or swap. Drop outside: clear.", 0.6, 1, 0.6)
         GameTooltip:Show()

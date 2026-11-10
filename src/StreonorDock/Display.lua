@@ -224,6 +224,18 @@ function Display.UpdateButton(b, slot)
     if b.chargeCooldown and has(b.chargeCooldown, "Clear") then b.chargeCooldown:Clear() end
     if not slot or slot.kind == "empty" then setBadge(b, ""); setZero(b, false); return end
     applyFont(b)
+    if slot.kind == "macro" then
+        -- Cooldown of whatever the macro would cast or use, when the client can tell; otherwise none.
+        local index = Game.MacroIndex(slot.name, slot.scope)
+        b.macroMissing = index == nil
+        setBadge(b, "")
+        if not index then setZero(b, true); return end
+        setZero(b, false)
+        local kind, id = Game.MacroTarget(index)
+        if kind == "spell" then updateSpell(b, {kind = "spell", id = id}, s); setBadge(b, "")
+        elseif kind == "item" then updateItem(b, {kind = "item", id = id}, s) end
+        return
+    end
     if slot.kind == "spell" then updateSpell(b, slot, s)
     elseif slot.kind == "item" then updateItem(b, slot, s) end
 end
